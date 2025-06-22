@@ -8,30 +8,30 @@ blueprint:
 
     ## Features
 
-    • **Automatic Control** - Turns lights on when dark and someone is present
+    - Automatic Control - Turns lights on when dark and someone is present
     
-    • **Energy Saving** - Turns lights off when room is vacant
+    - Energy Saving - Turns lights off when room is vacant
     
-    • **Smart Overrides** - Respects when you manually control lights
+    - Smart Overrides - Respects when you manually control lights
     
-    • **Bright Room Logic** - Clears overrides when you turn off lights in well-lit rooms
+    - Bright Room Logic - Clears overrides when you turn off lights in well-lit rooms
     
-    • **Timeout Protection** - Clears overrides after configurable timeout or room vacancy
+    - Timeout Protection - Clears overrides after configurable timeout or room vacancy
     
-    • **Adaptive Brightness** - Optional brightness adjustment based on time and ambient light
+    - Adaptive Brightness - Optional brightness adjustment based on time and ambient light
     
-    • **Smooth Transitions** - Optional fade in/out effects for compatible lights
+    - Smooth Transitions - Optional fade in/out effects for compatible lights
     
-    • **Human-Friendly** - Lights stay on while room is occupied, regardless of brightness
+    - Human-Friendly - Lights stay on while room is occupied, regardless of brightness
 
     ## Compatible Sensors
 
     This blueprint works with:
-    • Everything Presence One/Light sensors
-    • Standard motion/PIR sensors
-    • mmWave/radar presence sensors
-    • Any illuminance/light level sensor
-    • Or combinations of these sensors
+    - Everything Presence One/Light sensors
+    - Standard motion/PIR sensors
+    - mmWave/radar presence sensors
+    - Any illuminance/light level sensor
+    - Or combinations of these sensors
     
     ## REQUIRED HELPER ENTITIES
 
@@ -94,7 +94,7 @@ blueprint:
       selector:
         entity:
           domain: binary_sensor
-          device_class: 
+          device_class:
             - motion
             - occupancy
             - presence
@@ -109,7 +109,7 @@ blueprint:
       selector:
         entity:
           domain: binary_sensor
-          device_class: 
+          device_class:
             - motion
             - occupancy
             - presence
@@ -122,7 +122,7 @@ blueprint:
         If you don't have a light sensor, create an input_number helper set to 50 lux.
       selector:
         entity:
-          domain: 
+          domain:
             - sensor
             - input_number
     light_switch:
@@ -133,22 +133,24 @@ blueprint:
         You can also select a light group to control multiple lights at once.
       selector:
         entity:
-          domain: [switch, light]
+          domain:
+            - switch
+            - light
     dark_threshold:
       name: Dark Threshold
       description: >
         Lux threshold below which the room is considered dark enough to need lights.
         When illuminance falls below this value AND someone is present, lights will
         turn on automatically. Typically 20-50 lux for most rooms.
-        MUST be significantly lower than bright threshold!
+        MUST be lower than bright threshold!
       default: 30
       selector:
         number:
-          min: 5
-          max: 100
+          min: 0
+          max: 499
           unit_of_measurement: lux
           mode: slider
-          step: 5
+          step: 1
     bright_threshold:
       name: Bright Threshold
       description: >
@@ -156,15 +158,15 @@ blueprint:
         This threshold is important for the "clear override when turning off lights in bright room"
         feature. When you manually turn off lights in a bright room, the override is cleared.
         Usually 150-300 lux is appropriate for most rooms.
-        MUST be significantly higher than dark threshold!
+        MUST be higher than dark threshold!
       default: 200
       selector:
         number:
-          min: 100
+          min: 1
           max: 500
           unit_of_measurement: lux
           mode: slider
-          step: 10
+          step: 1
     extremely_dark_threshold:
       name: Extremely Dark Threshold
       description: >
@@ -178,7 +180,7 @@ blueprint:
           max: 20
           unit_of_measurement: lux
           mode: slider
-          step: 0.5
+          step: 0.1
     sensor_off_latency_entity:
       name: Sensor Off Latency Entity (Optional)
       description: >
