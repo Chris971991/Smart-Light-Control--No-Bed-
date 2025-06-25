@@ -752,12 +752,36 @@ action:
                           level: info
                           message: "[{{ room_name | upper }}] Override cleared - user action matches automation intent"
               
-              # User action conflicts with automation - set override
+              # Smart manual override detection
               - conditions:
                   - condition: template
                     value_template: >-
-                      {{ (user_turned_on and not auto_would_turn_on) or 
-                         (user_turned_off and auto_would_turn_on) }}
+                      {% set threshold_gap = bright_threshold - dark_threshold %}
+                      {% set very_narrow_range = threshold_gap <= 10 %}
+                      {% set somewhat_dark = illuminance < (dark_threshold * 1.5) %}
+                      {% set near_dark_threshold = (illuminance - dark_threshold)|abs < 2 %}
+                      {% set buffer_zone = illuminance < (dark_threshold + (threshold_gap * 0.3)) %}
+                      
+                      {# Classic conflicts - always override #}
+                      {% set classic_conflict = (user_turned_on and not auto_would_turn_on) or 
+                                                (user_turned_off and auto_would_turn_on) %}
+                      
+                      {# Smart detection for edge cases #}
+                      {% set edge_case_off = user_turned_off and someone_present and 
+                                              (somewhat_dark or buffer_zone or near_dark_threshold) %}
+                      
+                      {# In narrow ranges, any manual action in middle should override #}
+                      {% set narrow_range_override = very_narrow_range and in_middle_range and 
+                                                      (user_turned_on or user_turned_off) %}
+                      
+                      {# User fighting automation - if light was auto-on and user turns it off #}
+                      {% set fighting_automation = user_turned_off and light_was_auto_on and someone_present %}
+                      
+                      {# Turn off in extremely dark conditions = definitely wants override #}
+                      {% set extreme_override = user_turned_off and is_extremely_dark and someone_present %}
+                      
+                      {{ classic_conflict or edge_case_off or narrow_range_override or 
+                         fighting_automation or extreme_override }}
                 sequence:
                   - service: input_boolean.turn_on
                     target:
@@ -771,7 +795,11 @@ action:
                       - service: system_log.write
                         data:
                           level: info
-                          message: "[{{ room_name | upper }}] Manual override set - user action conflicts with automation"
+                          message: >-
+                            [{{ room_name | upper }}] Manual override set - Smart detection
+                            | Reason: {% if (user_turned_on and not auto_would_turn_on) or (user_turned_off and auto_would_turn_on) %}Classic conflict{% elif user_turned_off and someone_present and illuminance < (dark_threshold * 1.5) %}User wants lights off near dark threshold{% elif (bright_threshold - dark_threshold) <= 10 and in_middle_range %}Narrow threshold range manual control{% elif user_turned_off and light_was_auto_on and someone_present %}User overriding automatic action{% elif user_turned_off and is_extremely_dark and someone_present %}Manual off in extreme darkness{% else %}Edge case detected{% endif %}
+                            | Illuminance: {{ illuminance }} lux
+                            | Thresholds: {{ dark_threshold }}-{{ bright_threshold }} lux
           
           # Always clear auto-on flag on manual changes
           - service: input_boolean.turn_off
