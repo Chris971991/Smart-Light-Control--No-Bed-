@@ -395,7 +395,20 @@ variables:
         {% set pir_vacant_time = current_time - pir_changed %}
         {% set mmwave_vacant_time = current_time - mmwave_changed %}
         {% set required_time = vacancy_timeout_minutes * 60 %}
-        {{ pir_vacant_time > required_time and mmwave_vacant_time > required_time }}
+        {% set room_vacant_long_enough = pir_vacant_time > required_time and mmwave_vacant_time > required_time %}
+        
+        {# Only clear if override has been active for at least the vacancy timeout #}
+        {% if room_vacant_long_enough and manual_override %}
+          {% set override_changed = as_timestamp(states[manual_override_helper].last_changed) %}
+          {% if override_changed is none %}
+            false
+          {% else %}
+            {% set override_age = current_time - override_changed %}
+            {{ override_age > required_time }}
+          {% endif %}
+        {% else %}
+          {{ room_vacant_long_enough }}
+        {% endif %}
       {% endif %}
     {% endif %}
   
