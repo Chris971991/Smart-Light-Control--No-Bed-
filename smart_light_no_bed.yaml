@@ -754,34 +754,45 @@ action:
               
               # Smart manual override detection
               - conditions:
-                  - condition: template
-                    value_template: >-
-                      {% set threshold_gap = bright_threshold - dark_threshold %}
-                      {% set very_narrow_range = threshold_gap <= 10 %}
-                      {% set somewhat_dark = illuminance < (dark_threshold * 1.5) %}
-                      {% set near_dark_threshold = (illuminance - dark_threshold)|abs < 2 %}
-                      {% set buffer_zone = illuminance < (dark_threshold + (threshold_gap * 0.3)) %}
-                      
-                      {# Classic conflicts - always override #}
-                      {% set classic_conflict = (user_turned_on and not auto_would_turn_on) or 
-                                                (user_turned_off and auto_would_turn_on) %}
-                      
-                      {# Smart detection for edge cases #}
-                      {% set edge_case_off = user_turned_off and someone_present and 
-                                              (somewhat_dark or buffer_zone or near_dark_threshold) %}
-                      
-                      {# In narrow ranges, any manual action in middle should override #}
-                      {% set narrow_range_override = very_narrow_range and in_middle_range and 
-                                                      (user_turned_on or user_turned_off) %}
-                      
-                      {# User fighting automation - if light was auto-on and user turns it off #}
-                      {% set fighting_automation = user_turned_off and light_was_auto_on and someone_present %}
-                      
-                      {# Turn off in extremely dark conditions = definitely wants override #}
-                      {% set extreme_override = user_turned_off and is_extremely_dark and someone_present %}
-                      
-                      {{ classic_conflict or edge_case_off or narrow_range_override or 
-                         fighting_automation or extreme_override }}
+                - condition: template
+                  value_template: >-
+                    {# Check if light was just automatically turned on #}
+                    {% set auto_on_recent = false %}
+                    {% if is_state(light_auto_on_helper, 'on') and user_turned_on %}
+                      {% set auto_on_changed = as_timestamp(states[light_auto_on_helper].last_changed) %}
+                      {% if auto_on_changed is not none %}
+                        {% set age = now().timestamp() - auto_on_changed %}
+                        {% set auto_on_recent = age < 5 %}
+                      {% endif %}
+                    {% endif %}
+                    
+                    {% set threshold_gap = bright_threshold - dark_threshold %}
+                    {% set very_narrow_range = threshold_gap <= 10 %}
+                    {% set somewhat_dark = illuminance < (dark_threshold * 1.5) %}
+                    {% set near_dark_threshold = (illuminance - dark_threshold)|abs < 2 %}
+                    {% set buffer_zone = illuminance < (dark_threshold + (threshold_gap * 0.3)) %}
+                    
+                    {# Classic conflicts - always override #}
+                    {% set classic_conflict = (user_turned_on and not auto_would_turn_on) or 
+                                              (user_turned_off and auto_would_turn_on) %}
+                    
+                    {# Smart detection for edge cases #}
+                    {% set edge_case_off = user_turned_off and someone_present and 
+                                            (somewhat_dark or buffer_zone or near_dark_threshold) %}
+                    
+                    {# In narrow ranges, any manual action in middle should override #}
+                    {% set narrow_range_override = very_narrow_range and in_middle_range and 
+                                                    (user_turned_on or user_turned_off) %}
+                    
+                    {# User fighting automation - if light was auto-on and user turns it off #}
+                    {% set fighting_automation = user_turned_off and light_was_auto_on and someone_present %}
+                    
+                    {# Turn off in extremely dark conditions = definitely wants override #}
+                    {% set extreme_override = user_turned_off and is_extremely_dark and someone_present %}
+                    
+                    {# Only set override if NOT a recent automatic turn-on #}
+                    {{ not auto_on_recent and (classic_conflict or edge_case_off or narrow_range_override or 
+                      fighting_automation or extreme_override) }}
                 sequence:
                   - service: input_boolean.turn_on
                     target:
