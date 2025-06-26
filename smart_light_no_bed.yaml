@@ -16,7 +16,7 @@ blueprint:
     
     - Bright Room Logic - Clears overrides when you turn off lights in well-lit rooms
     
-    - Timeout Protection - Clears overrides after configurable timeout or room vacancy
+    - Timeout Protection - Clears overrides after configurable timeout
     
     - Adaptive Brightness - Optional brightness adjustment based on time and ambient light
     
@@ -322,7 +322,7 @@ variables:
       {{ fixed_latency_seconds }}
     {% endif %}
   
-  # Calculate vacancy timeout in minutes
+  # Calculate vacancy timeout in minutes (NOT used for clearing overrides anymore)
   vacancy_timeout_minutes: >-
     {% set latency = sensor_off_latency_seconds | float(60) %}
     {% set multiplier = vacancy_timeout_multiplier | float(5) %}
@@ -381,36 +381,8 @@ variables:
   
   someone_present: "{{ pir_active or mmwave_active }}"
   
-  # Vacancy detection
-  vacant_for_timeout: >-
-    {% if someone_present %}
-      false
-    {% else %}
-      {% set current_time = now().timestamp() %}
-      {% set pir_changed = as_timestamp(states[presence_pir_sensor].last_changed) %}
-      {% set mmwave_changed = as_timestamp(states[mmwave_sensor].last_changed) %}
-      {% if pir_changed is none or mmwave_changed is none %}
-        false
-      {% else %}
-        {% set pir_vacant_time = current_time - pir_changed %}
-        {% set mmwave_vacant_time = current_time - mmwave_changed %}
-        {% set required_time = vacancy_timeout_minutes * 60 %}
-        {% set room_vacant_long_enough = pir_vacant_time > required_time and mmwave_vacant_time > required_time %}
-        
-        {# Only clear if override has been active for at least the vacancy timeout #}
-        {% if room_vacant_long_enough and manual_override %}
-          {% set override_changed = as_timestamp(states[manual_override_helper].last_changed) %}
-          {% if override_changed is none %}
-            false
-          {% else %}
-            {% set override_age = current_time - override_changed %}
-            {{ override_age > required_time }}
-          {% endif %}
-        {% else %}
-          {{ room_vacant_long_enough }}
-        {% endif %}
-      {% endif %}
-    {% endif %}
+  # Vacancy detection (simplified - no longer used for override clearing)
+  room_is_vacant: "{{ not someone_present }}"
   
   # Light state
   lights_on: >-
@@ -444,10 +416,10 @@ variables:
     {% else %}
       {% set age = now().timestamp() - override_changed %}
       {% set is_on = is_state(manual_override_helper, 'on') %}
-      {{ is_on and age < 10 }}
+      {{ is_on and age < 5 }}
     {% endif %}
   
-  # Check if light was recently manually changed (regardless of override state)
+  # Check if light was recently manually changed (REDUCED from 15 to 3 seconds)
   light_recently_manually_changed: >-
     {% set light_changed = as_timestamp(states[light_switch].last_changed) %}
     {% if light_changed is none %}
@@ -456,14 +428,14 @@ variables:
       {% set age = now().timestamp() - light_changed %}
       {% set last_action = states(last_automation_action_helper) %}
       {% if last_action in ['unknown', 'unavailable', '', None] %}
-        {{ age < 15 }}
+        {{ age < 3 }}
       {% else %}
         {% set action_time = as_timestamp(last_action) %}
         {% if action_time is none %}
-          {{ age < 15 }}
+          {{ age < 3 }}
         {% else %}
           {% set time_since_action = now().timestamp() - action_time %}
-          {{ age < 15 and time_since_action > 2 }}
+          {{ age < 3 and time_since_action > 1 }}
         {% endif %}
       {% endif %}
     {% endif %}
@@ -503,7 +475,7 @@ variables:
             true
           {% else %}
             {% set time_since = current_time - action_time %}
-            {{ time_since > 2 }}
+            {{ time_since > 1 }}
           {% endif %}
         {% endif %}
       {% endif %}
@@ -540,7 +512,7 @@ variables:
       {% endif %}
     {% endif %}
   
-  # Override timeout check
+  # Override timeout check (only time-based now)
   override_timed_out: >-
     {% if not manual_override %}
       false
@@ -657,14 +629,14 @@ action:
             | Override helper state: {{ states(manual_override_helper) }}
             | Light state: {{ states(light_switch) }}
   
-  # Skip if we're in the middle of processing a light change
+  # Skip if we're in the middle of processing a light change (REDUCED from 2 to 0.5 seconds)
   - condition: template
     value_template: >-
       {% if trigger.id != 'light_change' and is_state(automation_active_helper, 'on') %}
         {% set active_time = as_timestamp(states[automation_active_helper].last_changed) %}
         {% if active_time is not none %}
           {% set age = now().timestamp() - active_time %}
-          {{ age > 2 }}
+          {{ age > 0.5 }}
         {% else %}
           true
         {% endif %}
@@ -736,7 +708,7 @@ action:
                     target:
                       entity_id: "{{ manual_override_helper }}"
                   - delay:
-                      milliseconds: 500
+                      milliseconds: 100
                   - if:
                       - condition: template
                         value_template: "{{ enable_debug_logs }}"
@@ -811,7 +783,7 @@ action:
                     target:
                       entity_id: "{{ manual_override_helper }}"
                   - delay:
-                      milliseconds: 500
+                      milliseconds: 100
                   - if:
                       - condition: template
                         value_template: "{{ enable_debug_logs }}"
@@ -830,39 +802,15 @@ action:
             target:
               entity_id: "{{ light_auto_on_helper }}"
           
-          # Small delay to ensure state is settled
-          - delay:
-              milliseconds: 200
-          
           # Stop processing if we set manual override
           - condition: template
             value_template: "{{ not is_state(manual_override_helper, 'on') }}"
 
-      # Clear overrides on timeout or vacancy
+      # Clear overrides ONLY on timeout (NOT vacancy)
       - conditions:
           - condition: template
-            value_template: "{{ manual_override }}"
-          - condition: or
-            conditions:
-              - condition: template
-                value_template: "{{ vacant_for_timeout }}"
-              - condition: template
-                value_template: "{{ override_timed_out }}"
+            value_template: "{{ manual_override and override_timed_out }}"
         sequence:
-          # For vacancy timeout, double-check that room is still vacant
-          - choose:
-              - conditions:
-                  - condition: template
-                    value_template: "{{ vacant_for_timeout }}"
-                sequence:
-                  # Re-check presence sensors before clearing override
-                  - condition: template
-                    value_template: >-
-                      {% set pir_on = states(presence_pir_sensor) == 'on' %}
-                      {% set mmwave_on = states(mmwave_sensor) == 'on' %}
-                      {% set still_vacant = not (pir_on or mmwave_on) %}
-                      {{ still_vacant }}
-          
           - service: input_boolean.turn_off
             target:
               entity_id: "{{ manual_override_helper }}"
@@ -876,27 +824,10 @@ action:
               - service: system_log.write
                 data:
                   level: info
-                  message: >-
-                    [{{ room_name | upper }}] Override cleared - 
-                    {{ 'vacancy timeout' if vacant_for_timeout else 'time limit exceeded' }}
-          # Re-evaluate lighting needs (with loop protection)
+                  message: "[{{ room_name | upper }}] Override cleared - time limit exceeded ({{ override_timeout_hours }} hours)"
+          # Re-evaluate lighting needs
           - delay:
-              milliseconds: 500
-          - condition: template
-            value_template: >-
-              {% set last_trigger = state_attr(this.entity_id, 'last_triggered') %}
-              {% if last_trigger is none %}
-                true
-              {% else %}
-                {% set current_time = now().timestamp() %}
-                {% set trigger_time = as_timestamp(last_trigger) %}
-                {% if trigger_time is none %}
-                  true
-                {% else %}
-                  {% set time_since = current_time - trigger_time %}
-                  {{ time_since > 5 }}
-                {% endif %}
-              {% endif %}
+              milliseconds: 100
           - service: automation.trigger
             target:
               entity_id: "{{ this.entity_id }}"
@@ -948,10 +879,6 @@ action:
                     data:
                       datetime: "{{ now() }}"
                   
-                  # Brief delay to allow for sensor settling
-                  - delay:
-                      milliseconds: 100
-                  
                   # Double-check conditions before turning on (prevents race condition)
                   - condition: template
                     value_template: >-
@@ -1001,9 +928,9 @@ action:
                     target:
                       entity_id: "{{ light_auto_on_helper }}"
                   
-                  # Clear automation active flag after delay
+                  # Clear automation active flag after minimal delay
                   - delay:
-                      seconds: "{{ transition_time_seconds if enable_transition_effects else 0.5 }}"
+                      seconds: "{{ transition_time_seconds if enable_transition_effects else 0.1 }}"
                   - service: input_boolean.turn_off
                     target:
                       entity_id: "{{ automation_active_helper }}"
@@ -1019,7 +946,7 @@ action:
                             [{{ room_name | upper }}] Automatically turned lights ON 
                             (brightness: {{ adaptive_brightness }}%)
 
-              # Turn off lights when vacant or bright
+              # Turn off lights when vacant
               - conditions:
                   - condition: template
                     value_template: "{{ auto_would_turn_off and lights_on }}"
@@ -1035,10 +962,6 @@ action:
                       entity_id: "{{ last_automation_action_helper }}"
                     data:
                       datetime: "{{ now() }}"
-                  
-                  # Brief delay to allow for sensor updates
-                  - delay:
-                      milliseconds: 100
                   
                   # Double-check presence before turning off (prevents race condition)
                   - condition: template
@@ -1069,9 +992,9 @@ action:
                     target:
                       entity_id: "{{ light_auto_on_helper }}"
                   
-                  # Clear automation active flag after delay
+                  # Clear automation active flag after minimal delay
                   - delay:
-                      seconds: "{{ transition_time_seconds if enable_transition_effects else 0.5 }}"
+                      seconds: "{{ transition_time_seconds if enable_transition_effects else 0.1 }}"
                   - service: input_boolean.turn_off
                     target:
                       entity_id: "{{ automation_active_helper }}"
@@ -1083,9 +1006,7 @@ action:
                       - service: system_log.write
                         data:
                           level: info
-                          message: >-
-                            [{{ room_name | upper }}] Automatically turned lights OFF 
-                            ({{ 'vacant' if not someone_present else 'bright enough' }})
+                          message: "[{{ room_name | upper }}] Automatically turned lights OFF (vacant)"
 
   # Final failsafe - if presence detected and lights are off in dark conditions, turn them on
   - condition: template
