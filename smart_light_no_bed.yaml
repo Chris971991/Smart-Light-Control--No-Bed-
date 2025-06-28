@@ -672,6 +672,24 @@ action:
             target:
               entity_id: "{{ occupancy_state_helper }}"
 
+  # EXPLICIT CHECK: Prevent any automatic action if manual override is active
+  - if:
+      - condition: template
+        value_template: "{{ is_state(manual_override_helper, 'on') and not is_light_change }}"
+    then:
+      - if:
+          - condition: template
+            value_template: "{{ enable_debug_logs }}"
+        then:
+          - service: system_log.write
+            data:
+              level: info
+              message: >-
+                [{{ room_name | upper }}] Manual override is active - skipping all automatic actions
+                | Trigger was: {{ trigger.id }}
+                | Would have: {{ 'turned on' if (auto_would_turn_on and not lights_on) else 'turned off' if (auto_would_turn_off and lights_on) else 'done nothing' }}
+      - stop: "Manual override active - respecting user preference"
+
   # Main automation logic
   - choose:
       # Handle manual light changes
