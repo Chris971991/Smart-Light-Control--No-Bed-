@@ -18,6 +18,8 @@ blueprint:
     
     - Timeout Protection - Clears overrides after configurable timeout
     
+    - Vacancy Override - Optional: Clear overrides after extended vacancy
+    
     - Adaptive Brightness - Optional brightness adjustment based on time and ambient light
     
     - Smooth Transitions - Optional fade in/out effects for compatible lights
@@ -219,6 +221,41 @@ blueprint:
           max: 30
           mode: slider
           step: 1
+    override_behavior:
+      name: Override Behavior
+      description: >
+        Choose how manual overrides should be handled:
+        
+        **Timeout Only** - Manual overrides are respected until the timeout expires. 
+        This gives you complete control - the room could be vacant for hours and your 
+        manual choice will be respected.
+        
+        **Vacancy Can Clear** - Manual overrides can be cleared by extended vacancy.
+        This prevents forgotten overrides from keeping lights off when you return to
+        a dark room hours later. More convenient but less absolute control.
+      default: "timeout_only"
+      selector:
+        select:
+          options:
+            - label: "Timeout Only - Full manual control"
+              value: "timeout_only"
+            - label: "Vacancy Can Clear - Smarter but less control"
+              value: "vacancy_clear"
+    vacancy_clear_minutes:
+      name: Vacancy Clear Time (minutes)
+      description: >
+        When using "Vacancy Can Clear" mode, how many minutes of vacancy before clearing overrides.
+        This is separate from the normal vacancy timeout - it's specifically for clearing manual overrides.
+        Typically 30-60 minutes to ensure the room is truly abandoned.
+        Only applies when Override Behavior is set to "Vacancy Can Clear".
+      default: 45
+      selector:
+        number:
+          min: 10
+          max: 120
+          unit_of_measurement: min
+          mode: slider
+          step: 5
     override_timeout_hours:
       name: Override Timeout Hours
       description: >
@@ -293,6 +330,8 @@ variables:
   enable_adaptive_brightness: !input enable_adaptive_brightness
   enable_transition_effects: !input enable_transition_effects
   transition_time_seconds: !input transition_time_seconds
+  override_behavior: !input override_behavior
+  vacancy_clear_minutes: !input vacancy_clear_minutes
   
   # Helper entity names (forced to lowercase for Home Assistant compatibility)
   automation_active_helper: "input_boolean.{{ room_name | lower }}_automation_active"
@@ -322,7 +361,7 @@ variables:
       {{ fixed_latency_seconds }}
     {% endif %}
   
-  # Calculate vacancy timeout in minutes (NOT used for clearing overrides anymore)
+  # Calculate vacancy timeout in minutes
   vacancy_timeout_minutes: >-
     {% set latency = sensor_off_latency_seconds | float(60) %}
     {% set multiplier = vacancy_timeout_multiplier | float(5) %}
@@ -381,8 +420,24 @@ variables:
   
   someone_present: "{{ pir_active or mmwave_active }}"
   
-  # Vacancy detection (simplified - no longer used for override clearing)
+  # Vacancy detection
   room_is_vacant: "{{ not someone_present }}"
+  
+  # Calculate how long room has been vacant
+  room_vacant_minutes: >-
+    {% if someone_present %}
+      0
+    {% else %}
+      {% set last_occupied = as_timestamp(states[occupancy_state_helper].last_changed) %}
+      {% if last_occupied is none %}
+        0
+      {% elif is_state(occupancy_state_helper, 'off') %}
+        {% set vacant_time = (now().timestamp() - last_occupied) / 60 %}
+        {{ vacant_time | round(0) }}
+      {% else %}
+        0
+      {% endif %}
+    {% endif %}
   
   # Light state
   lights_on: >-
@@ -512,18 +567,48 @@ variables:
       {% endif %}
     {% endif %}
   
-  # Override timeout check (only time-based now)
-  override_timed_out: >-
+  # Override timeout check - now includes vacancy option
+  override_should_clear: >-
     {% if not manual_override %}
       false
     {% else %}
+      {# Time-based timeout check #}
       {% set current_time = now().timestamp() %}
       {% set override_changed = as_timestamp(states[manual_override_helper].last_changed) %}
       {% if override_changed is none %}
-        false
+        {% set time_based_timeout = false %}
       {% else %}
         {% set hours_active = (current_time - override_changed) / 3600 %}
-        {{ hours_active > override_timeout_hours }}
+        {% set time_based_timeout = hours_active > override_timeout_hours %}
+      {% endif %}
+      
+      {# Vacancy-based clear check #}
+      {% set vacancy_clear = false %}
+      {% if override_behavior == 'vacancy_clear' %}
+        {% set vacancy_clear = room_vacant_minutes >= vacancy_clear_minutes %}
+      {% endif %}
+      
+      {{ time_based_timeout or vacancy_clear }}
+    {% endif %}
+  
+  # Determine clear reason for logging
+  override_clear_reason: >-
+    {% if not manual_override %}
+      "no override active"
+    {% else %}
+      {% set current_time = now().timestamp() %}
+      {% set override_changed = as_timestamp(states[manual_override_helper].last_changed) %}
+      {% if override_changed is not none %}
+        {% set hours_active = (current_time - override_changed) / 3600 %}
+        {% if hours_active > override_timeout_hours %}
+          "timeout (" ~ override_timeout_hours ~ " hours)"
+        {% elif override_behavior == 'vacancy_clear' and room_vacant_minutes >= vacancy_clear_minutes %}
+          "vacancy (" ~ room_vacant_minutes ~ " minutes vacant)"
+        {% else %}
+          "unknown"
+        {% endif %}
+      {% else %}
+        "unknown"
       {% endif %}
     {% endif %}
 
@@ -628,6 +713,7 @@ action:
             | Trigger: {{ trigger.id }}
             | Override helper state: {{ states(manual_override_helper) }}
             | Light state: {{ states(light_switch) }}
+            | Override behavior: {{ override_behavior }}
   
   # Skip if we're in the middle of processing a light change (REDUCED from 2 to 0.5 seconds)
   - condition: template
@@ -657,7 +743,8 @@ action:
             | States: illuminance={{ illuminance }}lux (dark={{ is_dark }}, bright={{ is_bright }})
             | Presence: {{ someone_present }} (PIR={{ pir_active }}, mmWave={{ mmwave_active }})
             | Light: {{ 'ON' if lights_on else 'OFF' }}{{ ' (manual override)' if manual_override else '' }}
-            | Vacancy timeout: {{ vacancy_timeout_minutes }}min
+            | Vacancy: {{ room_vacant_minutes }} minutes
+            | Override behavior: {{ override_behavior }}
 
   # Update occupancy state helper
   - choose:
@@ -824,10 +911,10 @@ action:
           - condition: template
             value_template: "{{ not is_state(manual_override_helper, 'on') }}"
 
-      # Clear overrides ONLY on timeout (NOT vacancy)
+      # Clear overrides based on timeout or vacancy
       - conditions:
           - condition: template
-            value_template: "{{ manual_override and override_timed_out }}"
+            value_template: "{{ manual_override and override_should_clear }}"
         sequence:
           - service: input_boolean.turn_off
             target:
@@ -842,7 +929,7 @@ action:
               - service: system_log.write
                 data:
                   level: info
-                  message: "[{{ room_name | upper }}] Override cleared - time limit exceeded ({{ override_timeout_hours }} hours)"
+                  message: "[{{ room_name | upper }}] Override cleared - {{ override_clear_reason }}"
           # Re-evaluate lighting needs
           - delay:
               milliseconds: 100
