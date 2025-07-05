@@ -759,7 +759,38 @@ action:
             target:
               entity_id: "{{ occupancy_state_helper }}"
 
-  # EXPLICIT CHECK: Prevent any automatic action if manual override is active
+  # MOVED UP: Clear overrides based on timeout or vacancy (BEFORE the manual override check)
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ manual_override and override_should_clear }}"
+        sequence:
+          - service: input_boolean.turn_off
+            target:
+              entity_id: "{{ manual_override_helper }}"
+          - service: input_boolean.turn_off
+            target:
+              entity_id: "{{ light_auto_on_helper }}"
+          - if:
+              - condition: template
+                value_template: "{{ enable_debug_logs }}"
+            then:
+              - service: system_log.write
+                data:
+                  level: info
+                  message: "[{{ room_name | upper }}] Override cleared - {{ override_clear_reason }}"
+          # Re-evaluate lighting needs
+          - delay:
+              milliseconds: 100
+          - service: automation.trigger
+            target:
+              entity_id: "{{ this.entity_id }}"
+            data:
+              skip_condition: false
+          # Stop here to let the re-trigger handle the rest
+          - stop: "Override cleared - retriggering automation"
+
+  # NOW do the explicit check for manual override (after clearing logic has had a chance to run)
   - if:
       - condition: template
         value_template: "{{ is_state(manual_override_helper, 'on') and not is_light_change }}"
@@ -910,34 +941,6 @@ action:
           # Stop processing if we set manual override
           - condition: template
             value_template: "{{ not is_state(manual_override_helper, 'on') }}"
-
-      # Clear overrides based on timeout or vacancy
-      - conditions:
-          - condition: template
-            value_template: "{{ manual_override and override_should_clear }}"
-        sequence:
-          - service: input_boolean.turn_off
-            target:
-              entity_id: "{{ manual_override_helper }}"
-          - service: input_boolean.turn_off
-            target:
-              entity_id: "{{ light_auto_on_helper }}"
-          - if:
-              - condition: template
-                value_template: "{{ enable_debug_logs }}"
-            then:
-              - service: system_log.write
-                data:
-                  level: info
-                  message: "[{{ room_name | upper }}] Override cleared - {{ override_clear_reason }}"
-          # Re-evaluate lighting needs
-          - delay:
-              milliseconds: 100
-          - service: automation.trigger
-            target:
-              entity_id: "{{ this.entity_id }}"
-            data:
-              skip_condition: false
 
       # Automatic light control (when no override is active)
       - conditions:
