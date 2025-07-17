@@ -1,39 +1,43 @@
 blueprint:
-  name: Smart Presence Lighting Control (No Bed)
+  name: Smart Presence Lighting Control (No Bed) - Enhanced
   description: >
-    # Smart Presence Lighting Control
+    # Smart Presence Lighting Control - Enhanced Version
 
     Intelligently manages your lighting based on room occupancy, light levels, and manual controls.
     Works with any combination of motion sensors, occupancy sensors, and illuminance sensors.
 
     ## Features
 
-    - Automatic Control - Turns lights on when dark and someone is present
+    • **Automatic Control** - Turns lights on when dark and someone is present
     
-    - Energy Saving - Turns lights off when room is vacant
+    • **Energy Saving** - Turns lights off when room is vacant
     
-    - Smart Overrides - Respects when you manually control lights
+    • **Smart Overrides** - Respects when you manually control lights
     
-    - Bright Room Logic - Clears overrides when you turn off lights in well-lit rooms
+    • **Bright Room Logic** - Clears overrides when turning off lights in well-lit rooms
     
-    - Timeout Protection - Clears overrides after configurable timeout
+    • **Timeout Protection** - Clears overrides after configurable timeout
     
-    - Vacancy Override - Optional: Clear overrides after extended vacancy
+    • **Vacancy Override** - Optional: Clear overrides after extended vacancy
     
-    - Adaptive Brightness - Optional brightness adjustment based on time and ambient light
+    • **Adaptive Brightness** - Optional brightness adjustment based on time and ambient light
     
-    - Smooth Transitions - Optional fade in/out effects for compatible lights
+    • **Smooth Transitions** - Optional fade in/out effects for compatible lights
     
-    - Human-Friendly - Lights stay on while room is occupied, regardless of brightness
+    • **Human-Friendly** - Lights stay on while room is occupied, regardless of brightness
+    
+    • **Enhanced Performance** - Optimized state checks and reduced processing overhead
+    
+    • **Improved Debugging** - Structured logs with clear decision trees and performance metrics
 
     ## Compatible Sensors
 
     This blueprint works with:
-    - Everything Presence One/Light sensors
-    - Standard motion/PIR sensors
-    - mmWave/radar presence sensors
-    - Any illuminance/light level sensor
-    - Or combinations of these sensors
+    • Everything Presence One/Light sensors
+    • Standard motion/PIR sensors
+    • mmWave/radar presence sensors
+    • Any illuminance/light level sensor
+    • Or combinations of these sensors
     
     ## REQUIRED HELPER ENTITIES
 
@@ -311,8 +315,11 @@ blueprint:
       selector:
         boolean:
 
-# Variables and state management
+# Variables and state management - ENHANCED
 variables:
+  # Store start time for performance monitoring
+  start_time: "{{ now().timestamp() }}"
+  
   # Input variables
   room_name: !input room_name
   presence_pir_sensor: !input presence_pir_sensor
@@ -340,224 +347,160 @@ variables:
   last_automation_action_helper: "input_datetime.{{ room_name | lower }}_last_automation_action"
   occupancy_state_helper: "input_boolean.{{ room_name | lower }}_occupancy_state"
   
-  # Use mmwave sensor if provided, otherwise use PIR sensor twice
+  # Determine effective mmWave sensor
   mmwave_sensor: >-
-    {% if presence_mmwave_sensor is defined and presence_mmwave_sensor != '' and presence_mmwave_sensor != None %}
+    {% if presence_mmwave_sensor and presence_mmwave_sensor != '' %}
       {{ presence_mmwave_sensor }}
     {% else %}
       {{ presence_pir_sensor }}
     {% endif %}
   
-  # Calculate sensor off latency
-  sensor_off_latency_seconds: >-
-    {% if sensor_off_latency_entity != '' %}
-      {% set latency_state = states(sensor_off_latency_entity) %}
-      {% if latency_state not in ['unknown', 'unavailable', None] %}
-        {{ latency_state | float(fixed_latency_seconds) }}
-      {% else %}
-        {{ fixed_latency_seconds }}
-      {% endif %}
-    {% else %}
-      {{ fixed_latency_seconds }}
-    {% endif %}
+  # Cache entity states for performance
+  pir_state: "{{ states(presence_pir_sensor) }}"
+  mmwave_state: "{{ states(mmwave_sensor) }}"
+  light_state: "{{ states(light_switch) }}"
+  illuminance_state: "{{ states(illuminance_sensor) }}"
   
-  # Calculate vacancy timeout in minutes
-  vacancy_timeout_minutes: >-
-    {% set latency = sensor_off_latency_seconds | float(60) %}
-    {% set multiplier = vacancy_timeout_multiplier | float(5) %}
-    {% if latency <= 0 %}
-      {% set latency = 60 %}
-    {% endif %}
-    {% if multiplier <= 0 %}
-      {% set multiplier = 5 %}
-    {% endif %}
-    {% set calc_timeout = (latency * multiplier) / 60 %}
-    {{ [calc_timeout | round(0, 'ceil'), 1] | max | int }}
+  # Basic state validations
+  pir_valid: "{{ pir_state not in ['unknown', 'unavailable', None] }}"
+  mmwave_valid: "{{ mmwave_state not in ['unknown', 'unavailable', None] }}"
+  light_valid: "{{ light_state not in ['unknown', 'unavailable', None] }}"
+  illuminance_valid: "{{ illuminance_state not in ['unknown', 'unavailable', None] }}"
   
-  # Sensor states with validation
-  illuminance: >-
-    {% set lux = states(illuminance_sensor) %}
-    {% if lux in ['unknown', 'unavailable', None] %}
-      50
-    {% else %}
-      {{ lux | float(50) }}
-    {% endif %}
-  
-  # Validate thresholds don't overlap
-  thresholds_valid: >-
-    {{ dark_threshold < bright_threshold }}
-  
-  # Light level conditions (with validation)
-  is_dark: >-
-    {% if not thresholds_valid %}
-      {{ illuminance < 50 }}
-    {% else %}
-      {{ illuminance < dark_threshold }}
-    {% endif %}
-  is_bright: >-
-    {% if not thresholds_valid %}
-      {{ illuminance >= 100 }}
-    {% else %}
-      {{ illuminance >= bright_threshold }}
-    {% endif %}
-  is_extremely_dark: "{{ illuminance < extremely_dark_threshold }}"
-  in_middle_range: "{{ not is_dark and not is_bright }}"
-  
-  # Presence detection with validation
-  pir_active: >-
-    {% if states(presence_pir_sensor) in ['unknown', 'unavailable'] %}
-      false
-    {% else %}
-      {{ is_state(presence_pir_sensor, 'on') }}
-    {% endif %}
-  
-  mmwave_active: >-
-    {% if states(mmwave_sensor) in ['unknown', 'unavailable'] %}
-      false
-    {% else %}
-      {{ is_state(mmwave_sensor, 'on') }}
-    {% endif %}
-  
+  # Core state evaluations
+  pir_active: "{{ pir_valid and pir_state == 'on' }}"
+  mmwave_active: "{{ mmwave_valid and mmwave_state == 'on' }}"
   someone_present: "{{ pir_active or mmwave_active }}"
+  lights_on: "{{ light_valid and light_state == 'on' }}"
   
-  # Vacancy detection
-  room_is_vacant: "{{ not someone_present }}"
+  # Illuminance with validation
+  illuminance: >-
+    {% if illuminance_valid %}
+      {{ illuminance_state | float(50) }}
+    {% else %}
+      50
+    {% endif %}
   
-  # Calculate how long room has been vacant
+  # Light level thresholds
+  is_dark: "{{ illuminance < dark_threshold }}"
+  is_bright: "{{ illuminance >= bright_threshold }}"
+  is_extremely_dark: "{{ illuminance < extremely_dark_threshold }}"
+  in_middle_range: "{{ dark_threshold <= illuminance < bright_threshold }}"
+  
+  # Validate thresholds
+  thresholds_valid: "{{ dark_threshold < bright_threshold }}"
+  
+  # Helper states with validation
+  manual_override: "{{ is_state(manual_override_helper, 'on') }}"
+  automation_active: "{{ is_state(automation_active_helper, 'on') }}"
+  light_was_auto_on: "{{ is_state(light_auto_on_helper, 'on') }}"
+  
+  # Timestamps for state change tracking
+  current_time: "{{ now().timestamp() }}"
+  
+  light_changed_time: >-
+    {% set changed = as_timestamp(states[light_switch].last_changed) %}
+    {{ changed if changed else current_time }}
+  
+  override_changed_time: >-
+    {% set changed = as_timestamp(states[manual_override_helper].last_changed) %}
+    {{ changed if changed else current_time }}
+  
+  occupancy_changed_time: >-
+    {% set changed = as_timestamp(states[occupancy_state_helper].last_changed) %}
+    {{ changed if changed else current_time }}
+  
+  last_automation_time: >-
+    {% set last_action = states(last_automation_action_helper) %}
+    {% if last_action not in ['unknown', 'unavailable', '', None] %}
+      {% set action_time = as_timestamp(last_action) %}
+      {{ action_time if action_time else 0 }}
+    {% else %}
+      0
+    {% endif %}
+  
+  # Time calculations
+  light_changed_seconds_ago: "{{ (current_time - light_changed_time) | round(1) }}"
+  override_active_minutes: "{{ ((current_time - override_changed_time) / 60) | round(1) }}"
   room_vacant_minutes: >-
     {% if someone_present %}
       0
     {% else %}
-      {% set last_occupied = as_timestamp(states[occupancy_state_helper].last_changed) %}
-      {% if last_occupied is none %}
-        0
-      {% elif is_state(occupancy_state_helper, 'off') %}
-        {% set vacant_time = (now().timestamp() - last_occupied) / 60 %}
-        {{ vacant_time | round(0) }}
-      {% else %}
-        0
-      {% endif %}
+      {{ ((current_time - occupancy_changed_time) / 60) | round(1) }}
     {% endif %}
+  time_since_last_automation: "{{ (current_time - last_automation_time) | round(1) }}"
   
-  # Light state
-  lights_on: >-
-    {% if states(light_switch) in ['unknown', 'unavailable'] %}
-      false
-    {% else %}
-      {{ is_state(light_switch, 'on') }}
-    {% endif %}
-  light_is_dimmable: >-
-    {% if light_switch.startswith('light.') %}
-      {% set brightness_attr = state_attr(light_switch, 'brightness') %}
-      {{ brightness_attr is not none or state_attr(light_switch, 'supported_features') is not none }}
-    {% else %}
-      false
-    {% endif %}
+  # Recent change detection
+  light_recently_changed: "{{ light_changed_seconds_ago < 2 }}"
+  override_recently_set: "{{ manual_override and (current_time - override_changed_time) < 5 }}"
   
-  # Manual override with proper state checking
-  manual_override: >-
-    {% set override_state = states(manual_override_helper) %}
-    {% if override_state in ['unknown', 'unavailable', None] %}
-      false
-    {% else %}
-      {{ override_state == 'on' }}
-    {% endif %}
-  
-  # Check if we just set manual override (prevent race conditions)
-  manual_override_recent: >-
-    {% set override_changed = as_timestamp(states[manual_override_helper].last_changed) %}
-    {% if override_changed is none %}
-      false
-    {% else %}
-      {% set age = now().timestamp() - override_changed %}
-      {% set is_on = is_state(manual_override_helper, 'on') %}
-      {{ is_on and age < 5 }}
-    {% endif %}
-  
-  # Check if light was recently manually changed (REDUCED from 15 to 3 seconds)
-  light_recently_manually_changed: >-
-    {% set light_changed = as_timestamp(states[light_switch].last_changed) %}
-    {% if light_changed is none %}
-      false
-    {% else %}
-      {% set age = now().timestamp() - light_changed %}
-      {% set last_action = states(last_automation_action_helper) %}
-      {% if last_action in ['unknown', 'unavailable', '', None] %}
-        {{ age < 3 }}
-      {% else %}
-        {% set action_time = as_timestamp(last_action) %}
-        {% if action_time is none %}
-          {{ age < 3 }}
-        {% else %}
-          {% set time_since_action = now().timestamp() - action_time %}
-          {{ age < 3 and time_since_action > 1 }}
-        {% endif %}
-      {% endif %}
-    {% endif %}
-  
-  automation_active: >-
-    {% if states(automation_active_helper) in ['unknown', 'unavailable'] %}
-      false
-    {% else %}
-      {{ is_state(automation_active_helper, 'on') }}
-    {% endif %}
-  
-  light_was_auto_on: >-
-    {% if states(light_auto_on_helper) in ['unknown', 'unavailable'] %}
-      false
-    {% else %}
-      {{ is_state(light_auto_on_helper, 'on') }}
-    {% endif %}
-  
-  # Trigger detection
-  is_light_change: "{{ trigger.platform == 'state' and trigger.entity_id == light_switch }}"
-  user_turned_on: "{{ is_light_change and trigger.to_state.state == 'on' and trigger.from_state.state == 'off' }}"
-  user_turned_off: "{{ is_light_change and trigger.to_state.state == 'off' and trigger.from_state.state == 'on' }}"
+  # Manual change detection
   is_manual_change: >-
-    {% if not is_light_change %}
+    {% if trigger.platform != 'state' or trigger.entity_id != light_switch %}
+      false
+    {% elif automation_active %}
+      false
+    {% elif time_since_last_automation < 1.5 %}
       false
     {% else %}
-      {% if automation_active %}
-        false
-      {% else %}
-        {% set last_action = states(last_automation_action_helper) %}
-        {% if last_action in ['unknown', 'unavailable', '', None] %}
-          true
-        {% else %}
-          {% set current_time = now().timestamp() %}
-          {% set action_time = as_timestamp(last_action) %}
-          {% if action_time is none %}
-            true
-          {% else %}
-            {% set time_since = current_time - action_time %}
-            {{ time_since > 1 }}
-          {% endif %}
-        {% endif %}
-      {% endif %}
+      true
     {% endif %}
+  
+  # Trigger analysis
+  is_light_trigger: "{{ trigger.platform == 'state' and trigger.entity_id == light_switch }}"
+  is_pir_trigger: "{{ trigger.platform == 'state' and trigger.entity_id == presence_pir_sensor }}"
+  is_mmwave_trigger: "{{ trigger.platform == 'state' and trigger.entity_id == mmwave_sensor }}"
+  is_illuminance_trigger: "{{ trigger.platform == 'state' and trigger.entity_id == illuminance_sensor }}"
+  is_periodic_trigger: "{{ trigger.platform == 'time_pattern' }}"
+  
+  user_turned_on: "{{ is_light_trigger and trigger.to_state.state == 'on' and trigger.from_state.state == 'off' }}"
+  user_turned_off: "{{ is_light_trigger and trigger.to_state.state == 'off' and trigger.from_state.state == 'on' }}"
   
   # Automation intent
-  auto_would_turn_on: "{{ (is_dark or is_extremely_dark) and someone_present }}"
+  auto_would_turn_on: "{{ is_dark and someone_present }}"
   auto_would_turn_off: "{{ not someone_present }}"
   
-  # Time-based brightness calculation
+  # Override timeout logic
+  override_timeout_exceeded: "{{ manual_override and (override_active_minutes / 60) > override_timeout_hours }}"
+  vacancy_clear_triggered: >-
+    {{ manual_override and override_behavior == 'vacancy_clear' and room_vacant_minutes >= vacancy_clear_minutes }}
+  
+  override_should_clear: "{{ override_timeout_exceeded or vacancy_clear_triggered }}"
+  
+  # Determine clear reason for logging
+  override_clear_reason: >-
+    {% if override_timeout_exceeded %}
+      "timeout ({{ override_timeout_hours }}h)"
+    {% elif vacancy_clear_triggered %}
+      "vacancy ({{ room_vacant_minutes | int }}min)"
+    {% else %}
+      "unknown"
+    {% endif %}
+  
+  # Light capabilities
+  light_is_dimmable: >-
+    {% if light_switch.startswith('light.') %}
+      {{ state_attr(light_switch, 'supported_features') is not none }}
+    {% else %}
+      false
+    {% endif %}
+  
+  # Adaptive brightness calculation
   adaptive_brightness: >-
     {% if not enable_adaptive_brightness or not light_is_dimmable %}
       100
     {% else %}
       {% set hour = now().hour %}
+      {% set night_hours = hour >= 22 or hour < 6 %}
+      {% set evening_hours = hour >= 20 and hour < 22 %}
+      {% set morning_hours = hour >= 6 and hour < 8 %}
+      
       {% if is_extremely_dark %}
-        {% if hour >= 22 or hour < 6 %}
-          30
-        {% else %}
-          80
-        {% endif %}
+        {{ 30 if night_hours else 80 }}
       {% elif is_dark %}
-        {% if hour >= 22 or hour < 6 %}
+        {% if night_hours %}
           40
-        {% elif hour >= 6 and hour < 8 %}
-          70
-        {% elif hour >= 20 and hour < 22 %}
+        {% elif morning_hours or evening_hours %}
           70
         {% else %}
           90
@@ -567,50 +510,19 @@ variables:
       {% endif %}
     {% endif %}
   
-  # Override timeout check - now includes vacancy option
-  override_should_clear: >-
-    {% if not manual_override %}
-      false
+  # Sensor latency calculation
+  sensor_off_latency_seconds: >-
+    {% if sensor_off_latency_entity and sensor_off_latency_entity != '' %}
+      {% set latency = states(sensor_off_latency_entity) | float(0) %}
+      {{ latency if latency > 0 else fixed_latency_seconds }}
     {% else %}
-      {# Time-based timeout check #}
-      {% set current_time = now().timestamp() %}
-      {% set override_changed = as_timestamp(states[manual_override_helper].last_changed) %}
-      {% if override_changed is none %}
-        {% set time_based_timeout = false %}
-      {% else %}
-        {% set hours_active = (current_time - override_changed) / 3600 %}
-        {% set time_based_timeout = hours_active > override_timeout_hours %}
-      {% endif %}
-      
-      {# Vacancy-based clear check #}
-      {% set vacancy_clear = false %}
-      {% if override_behavior == 'vacancy_clear' %}
-        {% set vacancy_clear = room_vacant_minutes >= vacancy_clear_minutes %}
-      {% endif %}
-      
-      {{ time_based_timeout or vacancy_clear }}
+      {{ fixed_latency_seconds }}
     {% endif %}
   
-  # Determine clear reason for logging
-  override_clear_reason: >-
-    {% if not manual_override %}
-      "no override active"
-    {% else %}
-      {% set current_time = now().timestamp() %}
-      {% set override_changed = as_timestamp(states[manual_override_helper].last_changed) %}
-      {% if override_changed is not none %}
-        {% set hours_active = (current_time - override_changed) / 3600 %}
-        {% if hours_active > override_timeout_hours %}
-          "timeout (" ~ override_timeout_hours ~ " hours)"
-        {% elif override_behavior == 'vacancy_clear' and room_vacant_minutes >= vacancy_clear_minutes %}
-          "vacancy (" ~ room_vacant_minutes ~ " minutes vacant)"
-        {% else %}
-          "unknown"
-        {% endif %}
-      {% else %}
-        "unknown"
-      {% endif %}
-    {% endif %}
+  # Vacancy timeout calculation
+  vacancy_timeout_minutes: >-
+    {% set timeout = (sensor_off_latency_seconds * vacancy_timeout_multiplier) / 60 %}
+    {{ [timeout | round(0, 'ceil'), 1] | max | int }}
 
 # Triggers
 trigger:
@@ -660,35 +572,41 @@ condition:
 
 # Actions
 action:
-  # Check and notify about missing helpers
+  # Performance tracking start
+  - variables:
+      action_start_time: "{{ now().timestamp() }}"
+  
+  # Validate helper entities exist
   - choose:
       - conditions:
           - condition: template
             value_template: >-
-              {% set helpers_exist = true %}
-              {% if states[automation_active_helper] is not defined %}
-                {% set helpers_exist = false %}
-              {% elif states[manual_override_helper] is not defined %}
-                {% set helpers_exist = false %}
-              {% elif states[light_auto_on_helper] is not defined %}
-                {% set helpers_exist = false %}
-              {% elif states[last_automation_action_helper] is not defined %}
-                {% set helpers_exist = false %}
-              {% elif states[occupancy_state_helper] is not defined %}
-                {% set helpers_exist = false %}
+              {% set missing = [] %}
+              {% if not states[automation_active_helper] %}
+                {% set missing = missing + [automation_active_helper] %}
               {% endif %}
-              {{ not helpers_exist }}
+              {% if not states[manual_override_helper] %}
+                {% set missing = missing + [manual_override_helper] %}
+              {% endif %}
+              {% if not states[light_auto_on_helper] %}
+                {% set missing = missing + [light_auto_on_helper] %}
+              {% endif %}
+              {% if not states[last_automation_action_helper] %}
+                {% set missing = missing + [last_automation_action_helper] %}
+              {% endif %}
+              {% if not states[occupancy_state_helper] %}
+                {% set missing = missing + [occupancy_state_helper] %}
+              {% endif %}
+              {{ missing | length > 0 }}
         sequence:
           - service: persistent_notification.create
             data:
               title: "{{ room_name }} Lighting Automation Error"
               message: >-
                 Missing required helper entities! Please create:
-                - {{ automation_active_helper }}
-                - {{ manual_override_helper }}
-                - {{ light_auto_on_helper }}
-                - {{ last_automation_action_helper }}
-                - {{ occupancy_state_helper }}
+                {% for helper in missing %}
+                - {{ helper }}
+                {% endfor %}
                 
                 Remember: All entity IDs must be lowercase!
               notification_id: "{{ room_name }}_lighting_helper_error"
@@ -700,7 +618,7 @@ action:
       notification_id: "{{ room_name }}_lighting_helper_error"
     continue_on_error: true
   
-  # Debug: Log current override state
+  # Debug: Initial state logging
   - if:
       - condition: template
         value_template: "{{ enable_debug_logs }}"
@@ -709,57 +627,50 @@ action:
         data:
           level: warning
           message: >-
-            [{{ room_name | upper }}] AUTOMATION START
-            | Trigger: {{ trigger.id }}
-            | Override helper state: {{ states(manual_override_helper) }}
-            | Light state: {{ states(light_switch) }}
-            | Override behavior: {{ override_behavior }}
+            ┌─ {{ room_name | upper }} AUTOMATION START ─────────────────────
+            │ Trigger: {{ trigger.id }} ({{ trigger.description | default('manual') }})
+            │ Light: {{ 'ON' if lights_on else 'OFF' }} ({{ light_state }})
+            │ Presence: {{ 'YES' if someone_present else 'NO' }} (PIR={{ pir_active }}, mmWave={{ mmwave_active }})
+            │ Illuminance: {{ illuminance }}lux (dark<{{ dark_threshold }}, bright≥{{ bright_threshold }})
+            │ Override: {{ 'ACTIVE' if manual_override else 'INACTIVE' }} ({{ override_active_minutes }}min)
+            │ Vacancy: {{ room_vacant_minutes }}min
+            └─────────────────────────────────────────────────────
   
-  # Skip if we're in the middle of processing a light change (REDUCED from 2 to 0.5 seconds)
+  # Skip if automation is already active (prevent race conditions)
   - condition: template
     value_template: >-
-      {% if trigger.id != 'light_change' and is_state(automation_active_helper, 'on') %}
+      {% if trigger.id != 'light_change' and automation_active %}
         {% set active_time = as_timestamp(states[automation_active_helper].last_changed) %}
-        {% if active_time is not none %}
-          {% set age = now().timestamp() - active_time %}
-          {{ age > 0.5 }}
+        {% if active_time %}
+          {{ (current_time - active_time) > 0.5 }}
         {% else %}
           true
         {% endif %}
       {% else %}
         true
       {% endif %}
-
-  # Debug logging - consolidated
-  - if:
-      - condition: template
-        value_template: "{{ enable_debug_logs }}"
-    then:
-      - service: system_log.write
-        data:
-          level: info
-          message: >-
-            [{{ room_name | upper }}] Triggered by: {{ trigger.id }}
-            | States: illuminance={{ illuminance }}lux (dark={{ is_dark }}, bright={{ is_bright }})
-            | Presence: {{ someone_present }} (PIR={{ pir_active }}, mmWave={{ mmwave_active }})
-            | Light: {{ 'ON' if lights_on else 'OFF' }}{{ ' (manual override)' if manual_override else '' }}
-            | Vacancy: {{ room_vacant_minutes }} minutes
-            | Override behavior: {{ override_behavior }}
-
-  # Update occupancy state helper
+  
+  # Update occupancy state helper if changed
   - choose:
       - conditions:
           - condition: template
             value_template: >-
-              {% set helper_exists = states[occupancy_state_helper] is defined %}
-              {% set state_different = someone_present != is_state(occupancy_state_helper, 'on') %}
-              {{ helper_exists and state_different }}
+              {{ states[occupancy_state_helper] and 
+                 someone_present != is_state(occupancy_state_helper, 'on') }}
         sequence:
           - service: "input_boolean.turn_{{ 'on' if someone_present else 'off' }}"
             target:
               entity_id: "{{ occupancy_state_helper }}"
-
-  # MOVED UP: Clear overrides based on timeout or vacancy (BEFORE the manual override check)
+          - if:
+              - condition: template
+                value_template: "{{ enable_debug_logs }}"
+            then:
+              - service: system_log.write
+                data:
+                  level: info
+                  message: "[{{ room_name | upper }}] Occupancy state updated: {{ 'OCCUPIED' if someone_present else 'VACANT' }}"
+  
+  # Override clearing logic
   - choose:
       - conditions:
           - condition: template
@@ -777,9 +688,12 @@ action:
             then:
               - service: system_log.write
                 data:
-                  level: info
-                  message: "[{{ room_name | upper }}] Override cleared - {{ override_clear_reason }}"
-          # Re-evaluate lighting needs
+                  level: warning
+                  message: >-
+                    ┌─ {{ room_name | upper }} OVERRIDE CLEARED ─────────────────
+                    │ Reason: {{ override_clear_reason }}
+                    │ Was active for: {{ override_active_minutes }} minutes
+                    └─────────────────────────────────────────────────────
           - delay:
               milliseconds: 100
           - service: automation.trigger
@@ -787,13 +701,12 @@ action:
               entity_id: "{{ this.entity_id }}"
             data:
               skip_condition: false
-          # Stop here to let the re-trigger handle the rest
           - stop: "Override cleared - retriggering automation"
-
-  # NOW do the explicit check for manual override (after clearing logic has had a chance to run)
+  
+  # Check for active manual override
   - if:
       - condition: template
-        value_template: "{{ is_state(manual_override_helper, 'on') and not is_light_change }}"
+        value_template: "{{ manual_override and not is_light_trigger }}"
     then:
       - if:
           - condition: template
@@ -803,17 +716,16 @@ action:
             data:
               level: info
               message: >-
-                [{{ room_name | upper }}] Manual override is active - skipping all automatic actions
-                | Trigger was: {{ trigger.id }}
-                | Would have: {{ 'turned on' if (auto_would_turn_on and not lights_on) else 'turned off' if (auto_would_turn_off and lights_on) else 'done nothing' }}
-      - stop: "Manual override active - respecting user preference"
-
+                [{{ room_name | upper }}] Manual override active - skipping automation
+                │ Would have: {{ 'turned ON' if (auto_would_turn_on and not lights_on) else 'turned OFF' if (auto_would_turn_off and lights_on) else 'done nothing' }}
+      - stop: "Manual override active"
+  
   # Main automation logic
   - choose:
       # Handle manual light changes
       - conditions:
           - condition: template
-            value_template: "{{ is_manual_change and is_light_change }}"
+            value_template: "{{ is_manual_change }}"
         sequence:
           - if:
               - condition: template
@@ -823,19 +735,16 @@ action:
                 data:
                   level: warning
                   message: >-
-                    [{{ room_name | upper }}] MANUAL CHANGE PROCESSING
-                    | user_turned_{{ 'on' if user_turned_on else 'off' if user_turned_off else 'unknown' }}
-                    | Current override state: {{ states(manual_override_helper) }}
-                    | auto_would_turn_on={{ auto_would_turn_on }}
-                    | auto_would_turn_off={{ auto_would_turn_off }}
-                    | illuminance={{ illuminance }} (dark<{{ dark_threshold }}, bright>={{ bright_threshold }})
-                    | is_dark={{ is_dark }}
-                    | is_bright={{ is_bright }}
-                    | someone_present={{ someone_present }}
+                    ┌─ {{ room_name | upper }} MANUAL CHANGE DETECTED ────────────
+                    │ Action: Turned {{ 'ON' if user_turned_on else 'OFF' }}
+                    │ Auto would: {{ 'turn ON' if auto_would_turn_on else 'turn OFF' if auto_would_turn_off else 'do nothing' }}
+                    │ Illuminance: {{ illuminance }}lux
+                    │ Presence: {{ 'YES' if someone_present else 'NO' }}
+                    └─────────────────────────────────────────────────────
           
-          # Process manual override logic
+          # Determine if override should be set or cleared
           - choose:
-              # User turned off lights in bright room while present - clear override
+              # Clear override - user turned off in bright room
               - conditions:
                   - condition: template
                     value_template: "{{ user_turned_off and is_bright and someone_present }}"
@@ -852,9 +761,9 @@ action:
                       - service: system_log.write
                         data:
                           level: info
-                          message: "[{{ room_name | upper }}] Override cleared - turned off lights in bright room"
+                          message: "[{{ room_name | upper }}] Override cleared - lights off in bright room"
               
-              # User action agrees with automation intent - clear override
+              # Clear override - user action matches automation intent
               - conditions:
                   - condition: template
                     value_template: >-
@@ -871,49 +780,38 @@ action:
                       - service: system_log.write
                         data:
                           level: info
-                          message: "[{{ room_name | upper }}] Override cleared - user action matches automation intent"
+                          message: "[{{ room_name | upper }}] Override cleared - action matches automation"
               
-              # Smart manual override detection
+              # Set override - user action conflicts with automation
               - conditions:
-                - condition: template
-                  value_template: >-
-                    {# Check if light was just automatically turned on #}
-                    {% set auto_on_recent = false %}
-                    {% if is_state(light_auto_on_helper, 'on') and user_turned_on %}
-                      {% set auto_on_changed = as_timestamp(states[light_auto_on_helper].last_changed) %}
-                      {% if auto_on_changed is not none %}
-                        {% set age = now().timestamp() - auto_on_changed %}
-                        {% set auto_on_recent = age < 5 %}
+                  - condition: template
+                    value_template: >-
+                      {% set auto_on_recent = false %}
+                      {% if is_state(light_auto_on_helper, 'on') and user_turned_on %}
+                        {% set auto_on_changed = as_timestamp(states[light_auto_on_helper].last_changed) %}
+                        {% if auto_on_changed %}
+                          {% set age = current_time - auto_on_changed %}
+                          {% set auto_on_recent = age < 5 %}
+                        {% endif %}
                       {% endif %}
-                    {% endif %}
-                    
-                    {% set threshold_gap = bright_threshold - dark_threshold %}
-                    {% set very_narrow_range = threshold_gap <= 10 %}
-                    {% set somewhat_dark = illuminance < (dark_threshold * 1.5) %}
-                    {% set near_dark_threshold = (illuminance - dark_threshold)|abs < 2 %}
-                    {% set buffer_zone = illuminance < (dark_threshold + (threshold_gap * 0.3)) %}
-                    
-                    {# Classic conflicts - always override #}
-                    {% set classic_conflict = (user_turned_on and not auto_would_turn_on) or 
-                                              (user_turned_off and auto_would_turn_on) %}
-                    
-                    {# Smart detection for edge cases #}
-                    {% set edge_case_off = user_turned_off and someone_present and 
-                                            (somewhat_dark or buffer_zone or near_dark_threshold) %}
-                    
-                    {# In narrow ranges, any manual action in middle should override #}
-                    {% set narrow_range_override = very_narrow_range and in_middle_range and 
-                                                    (user_turned_on or user_turned_off) %}
-                    
-                    {# User fighting automation - if light was auto-on and user turns it off #}
-                    {% set fighting_automation = user_turned_off and light_was_auto_on and someone_present %}
-                    
-                    {# Turn off in extremely dark conditions = definitely wants override #}
-                    {% set extreme_override = user_turned_off and is_extremely_dark and someone_present %}
-                    
-                    {# Only set override if NOT a recent automatic turn-on #}
-                    {{ not auto_on_recent and (classic_conflict or edge_case_off or narrow_range_override or 
-                      fighting_automation or extreme_override) }}
+                      
+                      {% set threshold_gap = bright_threshold - dark_threshold %}
+                      {% set very_narrow_range = threshold_gap <= 10 %}
+                      {% set somewhat_dark = illuminance < (dark_threshold * 1.5) %}
+                      {% set near_dark_threshold = (illuminance - dark_threshold)|abs < 2 %}
+                      {% set buffer_zone = illuminance < (dark_threshold + (threshold_gap * 0.3)) %}
+                      
+                      {% set classic_conflict = (user_turned_on and not auto_would_turn_on) or 
+                                                (user_turned_off and auto_would_turn_on) %}
+                      {% set edge_case_off = user_turned_off and someone_present and 
+                                              (somewhat_dark or buffer_zone or near_dark_threshold) %}
+                      {% set narrow_range_override = very_narrow_range and in_middle_range and 
+                                                      (user_turned_on or user_turned_off) %}
+                      {% set fighting_automation = user_turned_off and light_was_auto_on and someone_present %}
+                      {% set extreme_override = user_turned_off and is_extremely_dark and someone_present %}
+                      
+                      {{ not auto_on_recent and (classic_conflict or edge_case_off or narrow_range_override or 
+                        fighting_automation or extreme_override) }}
                 sequence:
                   - service: input_boolean.turn_on
                     target:
@@ -928,29 +826,24 @@ action:
                         data:
                           level: info
                           message: >-
-                            [{{ room_name | upper }}] Manual override set - Smart detection
-                            | Reason: {% if (user_turned_on and not auto_would_turn_on) or (user_turned_off and auto_would_turn_on) %}Classic conflict{% elif user_turned_off and someone_present and illuminance < (dark_threshold * 1.5) %}User wants lights off near dark threshold{% elif (bright_threshold - dark_threshold) <= 10 and in_middle_range %}Narrow threshold range manual control{% elif user_turned_off and light_was_auto_on and someone_present %}User overriding automatic action{% elif user_turned_off and is_extremely_dark and someone_present %}Manual off in extreme darkness{% else %}Edge case detected{% endif %}
-                            | Illuminance: {{ illuminance }} lux
-                            | Thresholds: {{ dark_threshold }}-{{ bright_threshold }} lux
+                            [{{ room_name | upper }}] Manual override SET
+                            │ Reason: {% if (user_turned_on and not auto_would_turn_on) or (user_turned_off and auto_would_turn_on) %}Conflicts with automation{% elif user_turned_off and someone_present and is_dark %}Wants dark while present{% elif user_turned_off and light_was_auto_on %}Fighting automation{% elif user_turned_off and is_extremely_dark %}Extreme darkness override{% elif very_narrow_range and in_middle_range %}Narrow threshold range{% else %}User preference{% endif %}
           
-          # Always clear auto-on flag on manual changes
+          # Clear auto-on flag
           - service: input_boolean.turn_off
             target:
               entity_id: "{{ light_auto_on_helper }}"
           
-          # Stop processing if we set manual override
+          # Stop if override was set
           - condition: template
-            value_template: "{{ not is_state(manual_override_helper, 'on') }}"
-
-      # Automatic light control (when no override is active)
+            value_template: "{{ not manual_override }}"
+      
+      # Automatic light control
       - conditions:
           - condition: template
-            value_template: >-
-              {% set override_on = is_state(manual_override_helper, 'on') %}
-              {% set light_changed_recently = light_recently_manually_changed %}
-              {{ not override_on and not light_changed_recently }}
+            value_template: "{{ not manual_override and not light_recently_changed }}"
         sequence:
-          # Double-check override state directly from helper
+          # Double-check override state
           - condition: template
             value_template: "{{ is_state(manual_override_helper, 'off') }}"
           
@@ -962,56 +855,35 @@ action:
                 data:
                   level: info
                   message: >-
-                    [{{ room_name | upper }}] AUTOMATIC CONTROL ACTIVE
-                    | manual_override={{ manual_override }}
-                    | light_recently_manually_changed={{ light_recently_manually_changed }}
-                    | override_state={{ states(manual_override_helper) }}
-                    | auto_would_turn_on={{ auto_would_turn_on }}
-                    | auto_would_turn_off={{ auto_would_turn_off }}
-                    | lights_on={{ lights_on }}
+                    [{{ room_name | upper }}] Automatic control evaluating...
+                    │ Should turn {{ 'ON' if (auto_would_turn_on and not lights_on) else 'OFF' if (auto_would_turn_off and lights_on) else 'nothing' }}
+          
           - choose:
-              # Turn on lights when dark and occupied
+              # Turn lights ON
               - conditions:
                   - condition: template
                     value_template: "{{ auto_would_turn_on and not lights_on }}"
                 sequence:
-                  # Set automation active flag
+                  # Set automation active
                   - service: input_boolean.turn_on
                     target:
                       entity_id: "{{ automation_active_helper }}"
                   
-                  # Record automation action time
+                  # Record action time
                   - service: input_datetime.set_datetime
                     target:
                       entity_id: "{{ last_automation_action_helper }}"
                     data:
                       datetime: "{{ now() }}"
                   
-                  # Double-check conditions before turning on (prevents race condition)
+                  # Final safety check
                   - condition: template
                     value_template: >-
-                      {% set current_lux = states(illuminance_sensor) | float(50) %}
-                      {% set still_dark = current_lux < dark_threshold %}
-                      {% set pir_on = states(presence_pir_sensor) == 'on' %}
-                      {% set mmwave_on = states(mmwave_sensor) == 'on' %}
-                      {% set still_present = pir_on or mmwave_on %}
-                      {% set light_still_off = is_state(light_switch, 'off') %}
-                      {% set no_override = is_state(manual_override_helper, 'off') %}
-                      {{ still_dark and still_present and light_still_off and no_override }}
+                      {{ is_dark and someone_present and 
+                         is_state(light_switch, 'off') and 
+                         is_state(manual_override_helper, 'off') }}
                   
-                  - if:
-                      - condition: template
-                        value_template: "{{ enable_debug_logs }}"
-                    then:
-                      - service: system_log.write
-                        data:
-                          level: info
-                          message: >-
-                            [{{ room_name | upper }}] TURNING LIGHTS ON
-                            | Override check: {{ states(manual_override_helper) }}
-                            | Light state: {{ states(light_switch) }}
-                  
-                  # Turn on the light
+                  # Turn on light
                   - choose:
                       - conditions:
                           - condition: template
@@ -1036,7 +908,7 @@ action:
                     target:
                       entity_id: "{{ light_auto_on_helper }}"
                   
-                  # Clear automation active flag after minimal delay
+                  # Clear automation active
                   - delay:
                       seconds: "{{ transition_time_seconds if enable_transition_effects else 0.1 }}"
                   - service: input_boolean.turn_off
@@ -1049,37 +921,36 @@ action:
                     then:
                       - service: system_log.write
                         data:
-                          level: info
+                          level: warning
                           message: >-
-                            [{{ room_name | upper }}] Automatically turned lights ON 
-                            (brightness: {{ adaptive_brightness }}%)
-
-              # Turn off lights when vacant
+                            ┌─ {{ room_name | upper }} LIGHTS TURNED ON ──────────────────
+                            │ Brightness: {{ adaptive_brightness }}%
+                            │ Transition: {{ transition_time_seconds if enable_transition_effects else 'instant' }}s
+                            └─────────────────────────────────────────────────────
+              
+              # Turn lights OFF
               - conditions:
                   - condition: template
                     value_template: "{{ auto_would_turn_off and lights_on }}"
                 sequence:
-                  # Set automation active flag
+                  # Set automation active
                   - service: input_boolean.turn_on
                     target:
                       entity_id: "{{ automation_active_helper }}"
                   
-                  # Record automation action time
+                  # Record action time
                   - service: input_datetime.set_datetime
                     target:
                       entity_id: "{{ last_automation_action_helper }}"
                     data:
                       datetime: "{{ now() }}"
                   
-                  # Double-check presence before turning off (prevents race condition)
+                  # Final safety check
                   - condition: template
                     value_template: >-
-                      {% set pir_on = states(presence_pir_sensor) == 'on' %}
-                      {% set mmwave_on = states(mmwave_sensor) == 'on' %}
-                      {% set still_vacant = not (pir_on or mmwave_on) %}
-                      {{ still_vacant }}
+                      {{ not someone_present and is_state(light_switch, 'on') }}
                   
-                  # Turn off the light
+                  # Turn off light
                   - choose:
                       - conditions:
                           - condition: template
@@ -1100,7 +971,7 @@ action:
                     target:
                       entity_id: "{{ light_auto_on_helper }}"
                   
-                  # Clear automation active flag after minimal delay
+                  # Clear automation active
                   - delay:
                       seconds: "{{ transition_time_seconds if enable_transition_effects else 0.1 }}"
                   - service: input_boolean.turn_off
@@ -1113,21 +984,14 @@ action:
                     then:
                       - service: system_log.write
                         data:
-                          level: info
-                          message: "[{{ room_name | upper }}] Automatically turned lights OFF (vacant)"
-
-  # Final failsafe - if presence detected and lights are off in dark conditions, turn them on
-  - condition: template
-    value_template: >-
-      {% set pir_on = states(presence_pir_sensor) == 'on' %}
-      {% set mmwave_on = states(mmwave_sensor) == 'on' %}
-      {% set presence_now = pir_on or mmwave_on %}
-      {% set lights_off = is_state(light_switch, 'off') %}
-      {% set is_dark_now = states(illuminance_sensor) | float(50) < dark_threshold %}
-      {% set needs_light = presence_now and lights_off and is_dark_now and not manual_override %}
-      {{ not needs_light }}
-
-  # Final check - ensure we're not violating manual override
+                          level: warning
+                          message: >-
+                            ┌─ {{ room_name | upper }} LIGHTS TURNED OFF ─────────────────
+                            │ Reason: Room vacant
+                            │ Transition: {{ transition_time_seconds if enable_transition_effects else 'instant' }}s
+                            └─────────────────────────────────────────────────────
+  
+  # Performance tracking end
   - if:
       - condition: template
         value_template: "{{ enable_debug_logs }}"
@@ -1136,9 +1000,10 @@ action:
         data:
           level: info
           message: >-
-            [{{ room_name | upper }}] AUTOMATION END
-            | Final override state: {{ states(manual_override_helper) }}
-            | Final light state: {{ states(light_switch) }}
+            [{{ room_name | upper }}] AUTOMATION COMPLETE
+            │ Execution time: {{ ((now().timestamp() - action_start_time) * 1000) | round(1) }}ms
+            │ Total time: {{ ((now().timestamp() - start_time) * 1000) | round(1) }}ms
+            │ Final state: Light={{ 'ON' if is_state(light_switch, 'on') else 'OFF' }}, Override={{ 'ACTIVE' if is_state(manual_override_helper, 'on') else 'INACTIVE' }}
 
 mode: queued
 max: 2
