@@ -1,7 +1,7 @@
 blueprint:
-  name: Smart Presence Lighting Control (No Bed) - Enhanced
+  name: Smart Presence Lighting Control (No Bed) - Enhanced v2
   description: >
-    # Smart Presence Lighting Control - Enhanced Version
+    # Smart Presence Lighting Control - Enhanced Version 2
 
     Intelligently manages your lighting based on room occupancy, light levels, and manual controls.
     Works with any combination of motion sensors, occupancy sensors, and illuminance sensors.
@@ -22,7 +22,13 @@ blueprint:
     
     • **Adaptive Brightness** - Optional brightness adjustment based on time and ambient light
     
+    • **Color Temperature Control** - Optional color temperature adjustment throughout the day
+    
     • **Smooth Transitions** - Optional fade in/out effects for compatible lights
+    
+    • **Illuminance Averaging** - Prevents light flapping from momentary light changes
+    
+    • **Guest Mode** - Special behavior for when you have guests
     
     • **Human-Friendly** - Lights stay on while room is occupied, regardless of brightness
     
@@ -67,17 +73,21 @@ blueprint:
        - Tracks combined occupancy state from all sensors
        - Example: input_boolean.office_occupancy_state
     
+    6. `input_text.[room_name]_illuminance_history`
+       - Stores recent illuminance readings for averaging
+       - Example: input_text.office_illuminance_history
+    
     Replace [room_name] with your actual room name in LOWERCASE (e.g., office, bedroom, living_room)
     
-    ## Migration Note
+    ## Guest Mode
     
-    If upgrading from the previous version:
-    1. Delete your old `input_text.[room_name]_last_automation_action` helper
-    2. Create a new `input_datetime.[room_name]_last_automation_action` helper with both date and time
-    3. Create the new `input_boolean.[room_name]_occupancy_state` helper
+    When enabled, guest mode modifies the automation behavior to be more guest-friendly:
+    - Lights stay on longer when room is vacant
+    - Manual overrides last longer before timing out
+    - Less aggressive power saving
+    - More forgiving presence detection
     
-    **IMPORTANT**: Ensure all helper entity IDs use lowercase room names!
-    If your room is "Office", helpers should be "office" (lowercase).
+    Perfect for when you have visitors, parties, or service workers in your home.
 
   domain: automation
   input:
@@ -283,6 +293,43 @@ blueprint:
       default: true
       selector:
         boolean:
+    enable_color_temperature:
+      name: Enable Color Temperature Control
+      description: >
+        When enabled, automatically adjusts the color temperature of lights throughout the day.
+        Cool white during daytime for alertness, warm white in evening for relaxation.
+        Only works with lights that support color temperature control.
+      default: true
+      selector:
+        boolean:
+    day_color_temp:
+      name: Daytime Color Temperature
+      description: >
+        Color temperature for daytime hours (9 AM - 5 PM).
+        Higher values = cooler/bluer light for alertness.
+        Typical range: 4000-6500K
+      default: 5000
+      selector:
+        number:
+          min: 2700
+          max: 6500
+          unit_of_measurement: K
+          mode: slider
+          step: 100
+    night_color_temp:
+      name: Nighttime Color Temperature
+      description: >
+        Color temperature for nighttime hours.
+        Lower values = warmer/orange light for relaxation.
+        Typical range: 2700-3500K
+      default: 3000
+      selector:
+        number:
+          min: 2700
+          max: 6500
+          unit_of_measurement: K
+          mode: slider
+          step: 100
     enable_transition_effects:
       name: Enable Smooth Transitions
       description: >
@@ -305,6 +352,54 @@ blueprint:
           unit_of_measurement: sec
           mode: slider
           step: 0.5
+    enable_illuminance_averaging:
+      name: Enable Illuminance Averaging
+      description: >
+        When enabled, averages the last 5 light readings to prevent flapping.
+        Helps when clouds, shadows, or sensor noise cause rapid light changes.
+        Adds stability but slightly delays response to legitimate lighting changes.
+      default: true
+      selector:
+        boolean:
+    enable_guest_mode:
+      name: Enable Guest Mode
+      description: >
+        When enabled, the automation becomes more guest-friendly:
+        • Lights stay on longer when vacant
+        • Manual overrides last longer
+        • Less aggressive power saving
+        • More forgiving presence detection
+        
+        Perfect for visitors, parties, or service workers.
+      default: false
+      selector:
+        boolean:
+    guest_vacancy_multiplier:
+      name: Guest Mode - Vacancy Multiplier
+      description: >
+        In guest mode, how much longer to wait before turning off lights.
+        2.0 = twice as long, 3.0 = three times as long, etc.
+        Only applies when guest mode is enabled.
+      default: 2.5
+      selector:
+        number:
+          min: 1.5
+          max: 5.0
+          mode: slider
+          step: 0.5
+    guest_override_multiplier:
+      name: Guest Mode - Override Timeout Multiplier
+      description: >
+        In guest mode, how much longer manual overrides remain active.
+        2.0 = twice as long, 3.0 = three times as long, etc.
+        Only applies when guest mode is enabled.
+      default: 2.0
+      selector:
+        number:
+          min: 1.5
+          max: 5.0
+          mode: slider
+          step: 0.5
     enable_debug_logs:
       name: Enable Debug Logs
       description: >
@@ -315,7 +410,7 @@ blueprint:
       selector:
         boolean:
 
-# Variables and state management - ENHANCED
+# Variables and state management - ENHANCED v2
 variables:
   # Store start time for performance monitoring
   start_time: "{{ now().timestamp() }}"
@@ -335,10 +430,17 @@ variables:
   fixed_latency_seconds: !input fixed_latency_seconds
   vacancy_timeout_multiplier: !input vacancy_timeout_multiplier
   enable_adaptive_brightness: !input enable_adaptive_brightness
+  enable_color_temperature: !input enable_color_temperature
+  day_color_temp: !input day_color_temp
+  night_color_temp: !input night_color_temp
   enable_transition_effects: !input enable_transition_effects
   transition_time_seconds: !input transition_time_seconds
   override_behavior: !input override_behavior
   vacancy_clear_minutes: !input vacancy_clear_minutes
+  enable_illuminance_averaging: !input enable_illuminance_averaging
+  enable_guest_mode: !input enable_guest_mode
+  guest_vacancy_multiplier: !input guest_vacancy_multiplier
+  guest_override_multiplier: !input guest_override_multiplier
   
   # Helper entity names (forced to lowercase for Home Assistant compatibility)
   automation_active_helper: "input_boolean.{{ room_name | lower }}_automation_active"
@@ -346,6 +448,7 @@ variables:
   light_auto_on_helper: "input_boolean.{{ room_name | lower }}_light_auto_on"
   last_automation_action_helper: "input_datetime.{{ room_name | lower }}_last_automation_action"
   occupancy_state_helper: "input_boolean.{{ room_name | lower }}_occupancy_state"
+  illuminance_history_helper: "input_text.{{ room_name | lower }}_illuminance_history"
   
   # Determine effective mmWave sensor
   mmwave_sensor: >-
@@ -373,12 +476,37 @@ variables:
   someone_present: "{{ pir_active or mmwave_active }}"
   lights_on: "{{ light_valid and light_state == 'on' }}"
   
-  # Illuminance with validation
-  illuminance: >-
+  # Illuminance with averaging
+  illuminance_raw: >-
     {% if illuminance_valid %}
       {{ illuminance_state | float(50) }}
     {% else %}
       50
+    {% endif %}
+  
+  illuminance_history: >-
+    {% if states[illuminance_history_helper] %}
+      {% set history = states(illuminance_history_helper) %}
+      {% if history not in ['unknown', 'unavailable', '', None] %}
+        {{ history }}
+      {% else %}
+        "[]"
+      {% endif %}
+    {% else %}
+      "[]"
+    {% endif %}
+  
+  illuminance: >-
+    {% if not enable_illuminance_averaging %}
+      {{ illuminance_raw }}
+    {% else %}
+      {% set history_list = illuminance_history | from_json %}
+      {% if history_list | length == 0 %}
+        {{ illuminance_raw }}
+      {% else %}
+        {% set recent = history_list[-4:] + [illuminance_raw] %}
+        {{ (recent | sum) / (recent | length) | round(1) }}
+      {% endif %}
     {% endif %}
   
   # Light level thresholds
@@ -460,19 +588,29 @@ variables:
   auto_would_turn_on: "{{ is_dark and someone_present }}"
   auto_would_turn_off: "{{ not someone_present }}"
   
-  # Override timeout logic
-  override_timeout_exceeded: "{{ manual_override and (override_active_minutes / 60) > override_timeout_hours }}"
+  # Guest mode adjustments
+  effective_vacancy_multiplier: >-
+    {{ (vacancy_timeout_multiplier * guest_vacancy_multiplier) if enable_guest_mode else vacancy_timeout_multiplier }}
+  
+  effective_override_hours: >-
+    {{ (override_timeout_hours * guest_override_multiplier) if enable_guest_mode else override_timeout_hours }}
+  
+  effective_vacancy_clear_minutes: >-
+    {{ (vacancy_clear_minutes * guest_vacancy_multiplier) if enable_guest_mode else vacancy_clear_minutes }}
+  
+  # Override timeout logic with guest mode
+  override_timeout_exceeded: "{{ manual_override and (override_active_minutes / 60) > effective_override_hours }}"
   vacancy_clear_triggered: >-
-    {{ manual_override and override_behavior == 'vacancy_clear' and room_vacant_minutes >= vacancy_clear_minutes }}
+    {{ manual_override and override_behavior == 'vacancy_clear' and room_vacant_minutes >= effective_vacancy_clear_minutes }}
   
   override_should_clear: "{{ override_timeout_exceeded or vacancy_clear_triggered }}"
   
   # Determine clear reason for logging
   override_clear_reason: >-
     {% if override_timeout_exceeded %}
-      "timeout ({{ override_timeout_hours }}h)"
+      "timeout ({{ effective_override_hours }}h{{ ' guest mode' if enable_guest_mode else '' }})"
     {% elif vacancy_clear_triggered %}
-      "vacancy ({{ room_vacant_minutes | int }}min)"
+      "vacancy ({{ room_vacant_minutes | int }}min{{ ' guest mode' if enable_guest_mode else '' }})"
     {% else %}
       "unknown"
     {% endif %}
@@ -485,7 +623,15 @@ variables:
       false
     {% endif %}
   
-  # Adaptive brightness calculation
+  light_supports_color_temp: >-
+    {% if light_switch.startswith('light.') %}
+      {% set features = state_attr(light_switch, 'supported_features') | int(0) %}
+      {{ (features & 2) == 2 }}
+    {% else %}
+      false
+    {% endif %}
+  
+  # Adaptive brightness calculation with guest mode consideration
   adaptive_brightness: >-
     {% if not enable_adaptive_brightness or not light_is_dimmable %}
       100
@@ -495,33 +641,77 @@ variables:
       {% set evening_hours = hour >= 20 and hour < 22 %}
       {% set morning_hours = hour >= 6 and hour < 8 %}
       
-      {% if is_extremely_dark %}
-        {{ 30 if night_hours else 80 }}
-      {% elif is_dark %}
-        {% if night_hours %}
-          40
-        {% elif morning_hours or evening_hours %}
-          70
+      {% if enable_guest_mode %}
+        {# Guest mode: generally brighter #}
+        {% if is_extremely_dark %}
+          {{ 50 if night_hours else 90 }}
+        {% elif is_dark %}
+          {% if night_hours %}
+            60
+          {% elif morning_hours or evening_hours %}
+            80
+          {% else %}
+            100
+          {% endif %}
         {% else %}
-          90
+          100
         {% endif %}
       {% else %}
-        100
+        {# Normal mode #}
+        {% if is_extremely_dark %}
+          {{ 30 if night_hours else 80 }}
+        {% elif is_dark %}
+          {% if night_hours %}
+            40
+          {% elif morning_hours or evening_hours %}
+            70
+          {% else %}
+            90
+          {% endif %}
+        {% else %}
+          100
+        {% endif %}
       {% endif %}
     {% endif %}
   
-  # Sensor latency calculation
+  # Adaptive color temperature calculation
+  adaptive_color_temp: >-
+    {% if not enable_color_temperature or not light_supports_color_temp %}
+      0
+    {% else %}
+      {% set hour = now().hour %}
+      {% set progress = 0 %}
+      {% if 6 <= hour < 9 %}
+        {# Morning transition #}
+        {% set progress = (hour - 6) / 3 %}
+      {% elif 9 <= hour < 17 %}
+        {# Daytime #}
+        {% set progress = 1 %}
+      {% elif 17 <= hour < 21 %}
+        {# Evening transition #}
+        {% set progress = 1 - ((hour - 17) / 4) %}
+      {% else %}
+        {# Night #}
+        {% set progress = 0 %}
+      {% endif %}
+      {% set temp_range = day_color_temp - night_color_temp %}
+      {% set temp = night_color_temp + (temp_range * progress) %}
+      {{ temp | int }}
+    {% endif %}
+  
+  # Sensor latency calculation with guest mode
   sensor_off_latency_seconds: >-
     {% if sensor_off_latency_entity and sensor_off_latency_entity != '' %}
       {% set latency = states(sensor_off_latency_entity) | float(0) %}
-      {{ latency if latency > 0 else fixed_latency_seconds }}
+      {% set base_latency = latency if latency > 0 else fixed_latency_seconds %}
     {% else %}
-      {{ fixed_latency_seconds }}
+      {% set base_latency = fixed_latency_seconds %}
     {% endif %}
+    {{ (base_latency * 1.5) if enable_guest_mode else base_latency }}
   
   # Vacancy timeout calculation
   vacancy_timeout_minutes: >-
-    {% set timeout = (sensor_off_latency_seconds * vacancy_timeout_multiplier) / 60 %}
+    {% set timeout = (sensor_off_latency_seconds * effective_vacancy_multiplier) / 60 %}
     {{ [timeout | round(0, 'ceil'), 1] | max | int }}
 
 # Triggers
@@ -597,6 +787,9 @@ action:
               {% if not states[occupancy_state_helper] %}
                 {% set missing = missing + [occupancy_state_helper] %}
               {% endif %}
+              {% if not states[illuminance_history_helper] %}
+                {% set missing = missing + [illuminance_history_helper] %}
+              {% endif %}
               {{ missing | length > 0 }}
         sequence:
           - service: persistent_notification.create
@@ -618,6 +811,21 @@ action:
       notification_id: "{{ room_name }}_lighting_helper_error"
     continue_on_error: true
   
+  # Update illuminance history if changed
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ is_illuminance_trigger and enable_illuminance_averaging }}"
+        sequence:
+          - service: input_text.set_value
+            target:
+              entity_id: "{{ illuminance_history_helper }}"
+            data:
+              value: >-
+                {% set history = illuminance_history | from_json %}
+                {% set new_history = (history[-4:] + [illuminance_raw]) | to_json %}
+                {{ new_history }}
+  
   # Debug: Initial state logging
   - if:
       - condition: template
@@ -631,9 +839,10 @@ action:
             │ Trigger: {{ trigger.id }} ({{ trigger.description | default('manual') }})
             │ Light: {{ 'ON' if lights_on else 'OFF' }} ({{ light_state }})
             │ Presence: {{ 'YES' if someone_present else 'NO' }} (PIR={{ pir_active }}, mmWave={{ mmwave_active }})
-            │ Illuminance: {{ illuminance }}lux (dark<{{ dark_threshold }}, bright≥{{ bright_threshold }})
+            │ Illuminance: {{ illuminance }}lux (raw={{ illuminance_raw }}lux, dark<{{ dark_threshold }}, bright≥{{ bright_threshold }})
             │ Override: {{ 'ACTIVE' if manual_override else 'INACTIVE' }} ({{ override_active_minutes }}min)
             │ Vacancy: {{ room_vacant_minutes }}min
+            │ Guest Mode: {{ 'ENABLED' if enable_guest_mode else 'DISABLED' }}
             └─────────────────────────────────────────────────────
   
   # Skip if automation is already active (prevent race conditions)
@@ -883,7 +1092,7 @@ action:
                          is_state(light_switch, 'off') and 
                          is_state(manual_override_helper, 'off') }}
                   
-                  # Turn on light
+                  # Turn on light with all features
                   - choose:
                       - conditions:
                           - condition: template
@@ -894,6 +1103,9 @@ action:
                               entity_id: "{{ light_switch }}"
                             data: >-
                               {% set data = {'brightness_pct': adaptive_brightness} %}
+                              {% if enable_color_temperature and light_supports_color_temp and adaptive_color_temp > 0 %}
+                                {% set data = dict(data, **{'kelvin': adaptive_color_temp}) %}
+                              {% endif %}
                               {% if enable_transition_effects %}
                                 {% set data = dict(data, **{'transition': transition_time_seconds}) %}
                               {% endif %}
@@ -925,7 +1137,9 @@ action:
                           message: >-
                             ┌─ {{ room_name | upper }} LIGHTS TURNED ON ──────────────────
                             │ Brightness: {{ adaptive_brightness }}%
+                            │ Color Temp: {{ adaptive_color_temp }}K{{ ' (enabled)' if (enable_color_temperature and light_supports_color_temp) else ' (disabled)' }}
                             │ Transition: {{ transition_time_seconds if enable_transition_effects else 'instant' }}s
+                            │ Guest Mode: {{ 'YES' if enable_guest_mode else 'NO' }}
                             └─────────────────────────────────────────────────────
               
               # Turn lights OFF
@@ -987,11 +1201,11 @@ action:
                           level: warning
                           message: >-
                             ┌─ {{ room_name | upper }} LIGHTS TURNED OFF ─────────────────
-                            │ Reason: Room vacant
+                            │ Reason: Room vacant ({{ vacancy_timeout_minutes }}min timeout{{ ', guest mode' if enable_guest_mode else '' }})
                             │ Transition: {{ transition_time_seconds if enable_transition_effects else 'instant' }}s
                             └─────────────────────────────────────────────────────
   
-  # Performance tracking end
+  # Enhanced decision summary
   - if:
       - condition: template
         value_template: "{{ enable_debug_logs }}"
@@ -1000,10 +1214,15 @@ action:
         data:
           level: info
           message: >-
-            [{{ room_name | upper }}] AUTOMATION COMPLETE
-            │ Execution time: {{ ((now().timestamp() - action_start_time) * 1000) | round(1) }}ms
-            │ Total time: {{ ((now().timestamp() - start_time) * 1000) | round(1) }}ms
-            │ Final state: Light={{ 'ON' if is_state(light_switch, 'on') else 'OFF' }}, Override={{ 'ACTIVE' if is_state(manual_override_helper, 'on') else 'INACTIVE' }}
+            [{{ room_name | upper }}] DECISION SUMMARY
+            ├─ Trigger: {{ trigger.id }}
+            ├─ Presence: {{ 'YES' if someone_present else 'NO' }} (PIR={{ pir_active }}, mmWave={{ mmwave_active }})
+            ├─ Light Level: {{ illuminance }}lux ({{ 'Dark' if is_dark else 'Bright' if is_bright else 'Medium' }})
+            ├─ Override: {{ 'ACTIVE' if manual_override else 'INACTIVE' }}
+            ├─ Guest Mode: {{ 'ENABLED' if enable_guest_mode else 'DISABLED' }}
+            ├─ Action Taken: {% if lights_on != (is_state(light_switch, 'on')) %}Light {{ 'turned ON' if is_state(light_switch, 'on') else 'turned OFF' }}{% else %}No change{% endif %}
+            ├─ Execution Time: {{ ((now().timestamp() - action_start_time) * 1000) | round(1) }}ms
+            └─ Total Time: {{ ((now().timestamp() - start_time) * 1000) | round(1) }}ms
 
 mode: queued
 max: 2
