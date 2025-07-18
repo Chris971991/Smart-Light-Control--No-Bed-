@@ -484,28 +484,33 @@ variables:
       50
     {% endif %}
   
-  illuminance_history: >-
+  illuminance_history_raw: >-
     {% if states[illuminance_history_helper] %}
       {% set history = states(illuminance_history_helper) %}
-      {% if history not in ['unknown', 'unavailable', '', None] %}
-        {{ history }}
+      {% if history in ['unknown', 'unavailable', '', None] %}
+        []
       {% else %}
-        "[]"
+        {{ history }}
       {% endif %}
     {% else %}
-      "[]"
+      []
     {% endif %}
-  
+
   illuminance: >-
     {% if not enable_illuminance_averaging %}
       {{ illuminance_raw }}
     {% else %}
-      {% set history_list = illuminance_history | from_json %}
-      {% if history_list | length == 0 %}
+      {% if illuminance_history_raw == '[]' or illuminance_history_raw == [] %}
         {{ illuminance_raw }}
       {% else %}
-        {% set recent = history_list[-4:] + [illuminance_raw] %}
-        {{ (recent | sum) / (recent | length) | round(1) }}
+        {% set history_str = illuminance_history_raw | string %}
+        {% if history_str.startswith('[') and history_str.endswith(']') %}
+          {% set values = history_str[1:-1].split(',') | select | map('float', 0) | list %}
+          {% set all_values = values[-4:] + [illuminance_raw | float] %}
+          {{ (all_values | sum) / (all_values | length) | round(1) }}
+        {% else %}
+          {{ illuminance_raw }}
+        {% endif %}
       {% endif %}
     {% endif %}
   
@@ -821,9 +826,18 @@ action:
               entity_id: "{{ illuminance_history_helper }}"
             data:
               value: >-
-                {% set history = illuminance_history | from_json %}
-                {% set new_history = (history[-4:] + [illuminance_raw]) | to_json %}
-                {{ new_history }}
+                {% if illuminance_history_raw == '[]' or illuminance_history_raw == [] %}
+                  [{{ illuminance_raw }}]
+                {% else %}
+                  {% set history_str = illuminance_history_raw | string %}
+                  {% if history_str.startswith('[') and history_str.endswith(']') %}
+                    {% set values = history_str[1:-1].split(',') | select | map('float', 0) | list %}
+                    {% set new_values = values[-4:] + [illuminance_raw | float] %}
+                    [{{ new_values | join(',') }}]
+                  {% else %}
+                    [{{ illuminance_raw }}]
+                  {% endif %}
+                {% endif %}
   
   # Debug: Initial state logging
   - if:
