@@ -626,7 +626,7 @@ variables:
   light_supports_color_temp: >-
     {% if light_switch.startswith('light.') %}
       {% set features = state_attr(light_switch, 'supported_features') | int(0) %}
-      {{ (features & 2) == 2 }}
+      {{ (features // 2) % 2 == 1 }}
     {% else %}
       false
     {% endif %}
