@@ -966,25 +966,6 @@ action:
           
           # Determine if override should be set or cleared
           - choose:
-              # Clear override - user turned off in bright room
-              - conditions:
-                  - condition: template
-                    value_template: "{{ user_turned_off and is_bright and someone_present }}"
-                sequence:
-                  - service: input_boolean.turn_off
-                    target:
-                      entity_id: "{{ manual_override_helper }}"
-                  - delay:
-                      milliseconds: 100
-                  - if:
-                      - condition: template
-                        value_template: "{{ enable_debug_logs }}"
-                    then:
-                      - service: system_log.write
-                        data:
-                          level: info
-                          message: "[{{ room_name | upper }}] Override cleared - lights off in bright room"
-              
               # Clear override - user action matches automation intent
               - conditions:
                   - condition: template
@@ -1003,6 +984,25 @@ action:
                         data:
                           level: info
                           message: "[{{ room_name | upper }}] Override cleared - action matches automation"
+              
+              # Clear override - user turned off in bright room (only if no conflict)
+              - conditions:
+                  - condition: template
+                    value_template: "{{ user_turned_off and is_bright and someone_present and not auto_would_turn_on }}"
+                sequence:
+                  - service: input_boolean.turn_off
+                    target:
+                      entity_id: "{{ manual_override_helper }}"
+                  - delay:
+                      milliseconds: 100
+                  - if:
+                      - condition: template
+                        value_template: "{{ enable_debug_logs }}"
+                    then:
+                      - service: system_log.write
+                        data:
+                          level: info
+                          message: "[{{ room_name | upper }}] Override cleared - lights off in bright room"
               
               # Set override - user action conflicts with automation
               - conditions:
