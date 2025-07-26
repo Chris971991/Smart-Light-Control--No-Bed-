@@ -966,6 +966,29 @@ action:
           
           # Determine if override should be set or cleared
           - choose:
+              # Set override - user action conflicts with automation
+              - conditions:
+                  - condition: template
+                    value_template: >-
+                      {{ (user_turned_on and not auto_would_turn_on) or 
+                         (user_turned_off and auto_would_turn_on) }}
+                sequence:
+                  - service: input_boolean.turn_on
+                    target:
+                      entity_id: "{{ manual_override_helper }}"
+                  - delay:
+                      milliseconds: 100
+                  - if:
+                      - condition: template
+                        value_template: "{{ enable_debug_logs }}"
+                    then:
+                      - service: system_log.write
+                        data:
+                          level: info
+                          message: >-
+                            [{{ room_name | upper }}] Manual override SET
+                            │ Reason: Conflicts with automation
+              
               # Clear override - user action matches automation intent
               - conditions:
                   - condition: template
@@ -985,10 +1008,10 @@ action:
                           level: info
                           message: "[{{ room_name | upper }}] Override cleared - action matches automation"
               
-              # Clear override - user turned off in bright room (only if no conflict)
+              # Clear override - user turned off in bright room
               - conditions:
                   - condition: template
-                    value_template: "{{ user_turned_off and is_bright and someone_present and not auto_would_turn_on }}"
+                    value_template: "{{ user_turned_off and is_bright and someone_present }}"
                 sequence:
                   - service: input_boolean.turn_off
                     target:
@@ -1004,7 +1027,7 @@ action:
                           level: info
                           message: "[{{ room_name | upper }}] Override cleared - lights off in bright room"
               
-              # Set override - user action conflicts with automation
+              # Default case - set override for other manual changes
               - conditions:
                   - condition: template
                     value_template: >-
@@ -1023,8 +1046,6 @@ action:
                       {% set near_dark_threshold = (illuminance - dark_threshold)|abs < 2 %}
                       {% set buffer_zone = illuminance < (dark_threshold + (threshold_gap * 0.3)) %}
                       
-                      {% set classic_conflict = (user_turned_on and not auto_would_turn_on) or 
-                                                (user_turned_off and auto_would_turn_on) %}
                       {% set edge_case_off = user_turned_off and someone_present and 
                                               (somewhat_dark or buffer_zone or near_dark_threshold) %}
                       {% set narrow_range_override = very_narrow_range and in_middle_range and 
@@ -1032,7 +1053,7 @@ action:
                       {% set fighting_automation = user_turned_off and light_was_auto_on and someone_present %}
                       {% set extreme_override = user_turned_off and is_extremely_dark and someone_present %}
                       
-                      {{ not auto_on_recent and (classic_conflict or edge_case_off or narrow_range_override or 
+                      {{ not auto_on_recent and (edge_case_off or narrow_range_override or 
                         fighting_automation or extreme_override) }}
                 sequence:
                   - service: input_boolean.turn_on
@@ -1049,7 +1070,7 @@ action:
                           level: info
                           message: >-
                             [{{ room_name | upper }}] Manual override SET
-                            │ Reason: {% if (user_turned_on and not auto_would_turn_on) or (user_turned_off and auto_would_turn_on) %}Conflicts with automation{% elif user_turned_off and someone_present and is_dark %}Wants dark while present{% elif user_turned_off and light_was_auto_on %}Fighting automation{% elif user_turned_off and is_extremely_dark %}Extreme darkness override{% elif very_narrow_range and in_middle_range %}Narrow threshold range{% else %}User preference{% endif %}
+                            │ Reason: {% if user_turned_off and someone_present and is_dark %}Wants dark while present{% elif user_turned_off and light_was_auto_on %}Fighting automation{% elif user_turned_off and is_extremely_dark %}Extreme darkness override{% elif very_narrow_range and in_middle_range %}Narrow threshold range{% else %}User preference{% endif %}
           
           # Clear auto-on flag
           - service: input_boolean.turn_off
