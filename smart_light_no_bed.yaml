@@ -892,6 +892,23 @@ action:
                   level: info
                   message: "[{{ room_name | upper }}] Occupancy state updated: {{ 'OCCUPIED' if someone_present else 'VACANT' }}"
   
+  # Debug manual change detection
+  - if:
+      - condition: template
+        value_template: "{{ enable_debug_logs and is_light_trigger }}"
+    then:
+      - service: system_log.write
+        data:
+          level: warning
+          message: >-
+            [{{ room_name | upper }}] Manual change detection:
+            │ is_manual_change: {{ is_manual_change }}
+            │ trigger.platform: {{ trigger.platform }}
+            │ trigger.entity_id: {{ trigger.entity_id }}
+            │ light_switch: {{ light_switch }}
+            │ automation_active: {{ automation_active }}
+            │ time_since_last_automation: {{ time_since_last_automation }}
+
   # Override clearing logic
   - choose:
       - conditions:
