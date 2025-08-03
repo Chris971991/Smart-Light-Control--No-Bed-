@@ -1054,61 +1054,97 @@ variables:
   current_minute: "{{ now().minute }}"
   current_time_decimal: "{{ current_hour + (current_minute / 60) }}"
   
-# Parse time inputs to decimal hours
+  # Parse time inputs to decimal hours
   morning_start_decimal: >-
-    {% set time_str = morning_start_time | string %}
-    {% if time_str and ':' in time_str %}
-      {% if time_str.count(':') == 2 %}
-        {% set parts = time_str.split(':') %}
-        {{ parts[0] | int + (parts[1] | int / 60) }}
+    {% set default_hour = 6 %}
+    {% if morning_start_time is defined and morning_start_time is not none %}
+      {% if morning_start_time is number %}
+        {{ morning_start_time }}
+      {% elif morning_start_time is string and morning_start_time != '' %}
+        {% if ':' in morning_start_time %}
+          {% set parts = morning_start_time.split(':') %}
+          {% if parts | length >= 2 %}
+            {{ parts[0] | int(0) + (parts[1] | int(0) / 60) }}
+          {% else %}
+            {{ default_hour }}
+          {% endif %}
+        {% else %}
+          {{ morning_start_time | int(default_hour) }}
+        {% endif %}
       {% else %}
-        {% set parts = time_str.split(':') %}
-        {{ parts[0] | int + (parts[1] | int / 60) }}
+        {{ default_hour }}
       {% endif %}
     {% else %}
-      6
+      {{ default_hour }}
     {% endif %}
   
   day_start_decimal: >-
-    {% set time_str = day_start_time | string %}
-    {% if time_str and ':' in time_str %}
-      {% if time_str.count(':') == 2 %}
-        {% set parts = time_str.split(':') %}
-        {{ parts[0] | int + (parts[1] | int / 60) }}
+    {% set default_hour = 9 %}
+    {% if day_start_time is defined and day_start_time is not none %}
+      {% if day_start_time is number %}
+        {{ day_start_time }}
+      {% elif day_start_time is string and day_start_time != '' %}
+        {% if ':' in day_start_time %}
+          {% set parts = day_start_time.split(':') %}
+          {% if parts | length >= 2 %}
+            {{ parts[0] | int(0) + (parts[1] | int(0) / 60) }}
+          {% else %}
+            {{ default_hour }}
+          {% endif %}
+        {% else %}
+          {{ day_start_time | int(default_hour) }}
+        {% endif %}
       {% else %}
-        {% set parts = time_str.split(':') %}
-        {{ parts[0] | int + (parts[1] | int / 60) }}
+        {{ default_hour }}
       {% endif %}
     {% else %}
-      9
+      {{ default_hour }}
     {% endif %}
   
   evening_start_decimal: >-
-    {% set time_str = evening_start_time | string %}
-    {% if time_str and ':' in time_str %}
-      {% if time_str.count(':') == 2 %}
-        {% set parts = time_str.split(':') %}
-        {{ parts[0] | int + (parts[1] | int / 60) }}
+    {% set default_hour = 18 %}
+    {% if evening_start_time is defined and evening_start_time is not none %}
+      {% if evening_start_time is number %}
+        {{ evening_start_time }}
+      {% elif evening_start_time is string and evening_start_time != '' %}
+        {% if ':' in evening_start_time %}
+          {% set parts = evening_start_time.split(':') %}
+          {% if parts | length >= 2 %}
+            {{ parts[0] | int(0) + (parts[1] | int(0) / 60) }}
+          {% else %}
+            {{ default_hour }}
+          {% endif %}
+        {% else %}
+          {{ evening_start_time | int(default_hour) }}
+        {% endif %}
       {% else %}
-        {% set parts = time_str.split(':') %}
-        {{ parts[0] | int + (parts[1] | int / 60) }}
+        {{ default_hour }}
       {% endif %}
     {% else %}
-      18
+      {{ default_hour }}
     {% endif %}
   
   night_start_decimal: >-
-    {% set time_str = night_start_time | string %}
-    {% if time_str and ':' in time_str %}
-      {% if time_str.count(':') == 2 %}
-        {% set parts = time_str.split(':') %}
-        {{ parts[0] | int + (parts[1] | int / 60) }}
+    {% set default_hour = 22 %}
+    {% if night_start_time is defined and night_start_time is not none %}
+      {% if night_start_time is number %}
+        {{ night_start_time }}
+      {% elif night_start_time is string and night_start_time != '' %}
+        {% if ':' in night_start_time %}
+          {% set parts = night_start_time.split(':') %}
+          {% if parts | length >= 2 %}
+            {{ parts[0] | int(0) + (parts[1] | int(0) / 60) }}
+          {% else %}
+            {{ default_hour }}
+          {% endif %}
+        {% else %}
+          {{ night_start_time | int(default_hour) }}
+        {% endif %}
       {% else %}
-        {% set parts = time_str.split(':') %}
-        {{ parts[0] | int + (parts[1] | int / 60) }}
+        {{ default_hour }}
       {% endif %}
     {% else %}
-      22
+      {{ default_hour }}
     {% endif %}
   
   # Enhanced adaptive brightness calculation
