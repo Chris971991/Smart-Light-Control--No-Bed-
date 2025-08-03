@@ -708,25 +708,13 @@ variables:
   # Store start time for performance monitoring
   start_time: "{{ now().timestamp() }}"
   
-  # Input variables with defensive handling
+  # Input variables
   room_name: !input room_name
   presence_pir_sensor: !input presence_pir_sensor
   presence_mmwave_sensor: !input presence_mmwave_sensor
   illuminance_sensor: !input illuminance_sensor
   light_switch: !input light_switch
-  
-# Fix light_entities to ensure it's always a list
-  light_entities: >-
-    {% if light_entities is defined and light_entities and light_entities != 0 %}
-      {% if light_entities is string %}
-        [light_entities]
-      {% else %}
-        {{ light_entities }}
-      {% endif %}
-    {% else %}
-      []
-    {% endif %}
-    
+  light_entities: !input light_entities
   control_mode: !input control_mode
   dark_threshold: !input dark_threshold
   bright_threshold: !input bright_threshold
@@ -768,28 +756,19 @@ variables:
   
   # Determine control entities based on mode
   has_switch: "{{ light_switch != '' and light_switch is not none }}"
-  has_lights: >-
-    {% set entities = light_entities %}
-    {% if entities == [] or entities == 0 or entities == '' or entities is none %}
-      false
-    {% elif entities is iterable and entities is not string and entities is not mapping %}
-      {{ entities | length > 0 }}
-    {% else %}
-      false
-    {% endif %}
+  has_lights: "{{ light_entities | length > 0 }}"
   
   # Primary control entity (for state checking and basic control)
   primary_control_entity: >-
-    {% set entities = light_entities %}
     {% if control_mode == 'lights_only' %}
-      {% if has_lights and entities is sequence and entities | length > 0 %}
-        {{ entities[0] }}
+      {% if has_lights %}
+        {{ light_entities[0] }}
       {% else %}
         none
       {% endif %}
     {% elif control_mode == 'switch_and_lights' %}
-      {% if has_lights and entities is sequence and entities | length > 0 %}
-        {{ entities[0] }}
+      {% if has_lights %}
+        {{ light_entities[0] }}
       {% elif has_switch %}
         {{ light_switch }}
       {% else %}
@@ -832,7 +811,7 @@ variables:
       'unavailable'
     {% endif %}
   
-# Light states (checking all entities)
+  # Light states (checking all entities)
   lights_on: >-
     {% if control_mode == 'switch_only' %}
       {% if has_switch %}
@@ -842,16 +821,7 @@ variables:
       {% endif %}
     {% else %}
       {% if has_lights %}
-        {% set entities = light_entities %}
-        {% set ns = namespace(found=false) %}
-        {% if entities is sequence %}
-          {% for entity in entities %}
-            {% if is_state(entity, 'on') %}
-              {% set ns.found = true %}
-            {% endif %}
-          {% endfor %}
-        {% endif %}
-        {{ ns.found }}
+        {{ expand(light_entities) | selectattr('state', 'eq', 'on') | list | count > 0 }}
       {% else %}
         false
       {% endif %}
@@ -986,17 +956,17 @@ variables:
       {% else %}
         true
       {% endif %}
-    {% elif control_mode == 'lights_only' and has_lights %}
-      {% set entities = light_entities %}
-      {% set found = false %}
-      {% if entities is sequence %}
-        {% for entity in entities %}
-          {% if trigger.entity_id == entity %}
-            {% set found = true %}
-          {% endif %}
-        {% endfor %}
+    {% elif control_mode == 'lights_only' and trigger.entity_id in light_entities %}
+      {% if automation_active and not automation_active_stale and time_since_last_automation < 1 %}
+        false
+      {% else %}
+        true
       {% endif %}
-      {% if found %}
+    {% elif control_mode == 'switch_and_lights' %}
+      {% if trigger.entity_id == light_switch %}
+        {# Switch press in switch_and_lights mode is always manual #}
+        true
+      {% elif trigger.entity_id in light_entities %}
         {% if automation_active and not automation_active_stale and time_since_last_automation < 1 %}
           false
         {% else %}
@@ -1004,29 +974,6 @@ variables:
         {% endif %}
       {% else %}
         false
-      {% endif %}
-    {% elif control_mode == 'switch_and_lights' %}
-      {% if trigger.entity_id == light_switch %}
-        true
-      {% else %}
-        {% set entities = light_entities %}
-        {% set found = false %}
-        {% if entities is sequence %}
-          {% for entity in entities %}
-            {% if trigger.entity_id == entity %}
-              {% set found = true %}
-            {% endif %}
-          {% endfor %}
-        {% endif %}
-        {% if found %}
-          {% if automation_active and not automation_active_stale and time_since_last_automation < 1 %}
-            false
-          {% else %}
-            true
-          {% endif %}
-        {% else %}
-          false
-        {% endif %}
       {% endif %}
     {% else %}
       false
@@ -1037,20 +984,7 @@ variables:
     {% if control_mode == 'switch_only' %}
       {{ trigger.platform == 'state' and trigger.entity_id == light_switch }}
     {% else %}
-      {% if trigger.platform == 'state' and has_lights %}
-        {% set entities = light_entities %}
-        {% set found = false %}
-        {% if entities is sequence %}
-          {% for entity in entities %}
-            {% if trigger.entity_id == entity %}
-              {% set found = true %}
-            {% endif %}
-          {% endfor %}
-        {% endif %}
-        {{ found }}
-      {% else %}
-        false
-      {% endif %}
+      {{ trigger.platform == 'state' and trigger.entity_id in light_entities }}
     {% endif %}
   is_pir_trigger: "{{ trigger.platform == 'state' and trigger.entity_id == presence_pir_sensor }}"
   is_mmwave_trigger: "{{ trigger.platform == 'state' and trigger.entity_id == mmwave_sensor }}"
@@ -1086,14 +1020,14 @@ variables:
     {% if override_timeout_exceeded %}
       "timeout ({{ effective_override_hours }}h{{ ' guest mode' if enable_guest_mode else '' }})"
     {% elif vacancy_clear_triggered %}
-      "vacancy ({{ room_vacant_minutes | int(0) }}min{{ ' guest mode' if enable_guest_mode else '' }})"
+      "vacancy ({{ room_vacant_minutes | int }}min{{ ' guest mode' if enable_guest_mode else '' }})"
     {% else %}
       "unknown"
     {% endif %}
   
   # Light capabilities (check first available light entity)
   first_light_entity: >-
-    {% if has_lights and light_entities | length > 0 %}
+    {% if has_lights %}
       {{ light_entities[0] }}
     {% elif has_switch and light_switch.startswith('light.') %}
       {{ light_switch }}
@@ -1120,11 +1054,19 @@ variables:
   current_minute: "{{ now().minute }}"
   current_time_decimal: "{{ current_hour + (current_minute / 60) }}"
   
-  # Parse time inputs to decimal hours - FIXED VERSION
-  morning_start_decimal: "{{ 6 }}"
-  day_start_decimal: "{{ 9 }}"
-  evening_start_decimal: "{{ 18 }}"
-  night_start_decimal: "{{ 22 }}"
+  # Parse time inputs to decimal hours
+  morning_start_decimal: >-
+    {% set time = morning_start_time.split(':') %}
+    {{ time[0] | int + (time[1] | int / 60) }}
+  day_start_decimal: >-
+    {% set time = day_start_time.split(':') %}
+    {{ time[0] | int + (time[1] | int / 60) }}
+  evening_start_decimal: >-
+    {% set time = evening_start_time.split(':') %}
+    {{ time[0] | int + (time[1] | int / 60) }}
+  night_start_decimal: >-
+    {% set time = night_start_time.split(':') %}
+    {{ time[0] | int + (time[1] | int / 60) }}
   
   # Enhanced adaptive brightness calculation
   adaptive_brightness: >-
@@ -1212,7 +1154,7 @@ variables:
       {% endif %}
       
       {# Ensure minimum brightness and cap at 100 #}
-      {{ [base_brightness, minimum_brightness] | max | min(100) | int(0) }}
+      {{ [base_brightness, minimum_brightness] | max | min(100) | int }}
     {% endif %}
   
   # Adaptive color temperature calculation
@@ -1237,7 +1179,7 @@ variables:
       {% endif %}
       {% set temp_range = day_color_temp - night_color_temp %}
       {% set temp = night_color_temp + (temp_range * progress) %}
-      {{ temp | int(0) }}
+      {{ temp | int }}
     {% endif %}
   
   # Transition time calculations
@@ -1268,7 +1210,7 @@ variables:
   # Vacancy timeout calculation
   vacancy_timeout_minutes: >-
     {% set timeout = (sensor_off_latency_seconds * effective_vacancy_multiplier) / 60 %}
-    {{ [timeout | round(0, 'ceil'), 1] | max | int(0) }}
+    {{ [timeout | round(0, 'ceil'), 1] | max | int }}
 
 # Triggers
 trigger:
@@ -1288,6 +1230,10 @@ trigger:
   - platform: state
     entity_id: !input light_switch
     id: switch_change
+    
+  - platform: state
+    entity_id: !input light_entities
+    id: light_change
     
   - platform: state
     entity_id: sun.sun
@@ -1449,17 +1395,6 @@ action:
                 {% endif %}
   
   # Debug: Initial state logging
-  - if:
-    - condition: template
-      value_template: "{{ enable_debug_logs }}"
-    then:
-      - service: system_log.write
-        data:
-          level: warning
-          message: >-
-            ┌─ {{ room_name | upper }} LIGHT ENTITIES DEBUG ─────────────────────
-            │ {{ light_entities_debug }}
-            └─────────────────────────────────────────────────────
   - if:
       - condition: template
         value_template: "{{ enable_debug_logs }}"
