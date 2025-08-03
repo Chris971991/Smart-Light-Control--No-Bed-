@@ -1054,103 +1054,59 @@ variables:
   current_minute: "{{ now().minute }}"
   current_time_decimal: "{{ current_hour + (current_minute / 60) }}"
   
-  # Parse time inputs to decimal hours - SIMPLIFIED VERSION
+  # Parse time inputs to decimal hours - SAFE VERSION
   morning_start_decimal: >-
     {% set default_hour = 6 %}
-    {% set input_value = morning_start_time %}
-    {% if input_value is defined and input_value is not none and input_value != '' %}
-      {% if input_value | string == input_value | string | int | string %}
-        {# It's a pure integer (seconds since midnight) #}
-        {{ (input_value | int / 3600) | round(2) }}
-      {% else %}
-        {# It's a string, try to parse it #}
-        {% set time_str = input_value | string %}
-        {% if ':' in time_str %}
-          {% set parts = time_str.replace(':', ' ').split() %}
-          {% if parts | length >= 2 %}
-            {{ (parts[0] | int(0)) + ((parts[1] | int(0)) / 60) }}
-          {% else %}
-            {{ default_hour }}
-          {% endif %}
-        {% else %}
-          {{ default_hour }}
-        {% endif %}
-      {% endif %}
+    {% set input_value = morning_start_time | string %}
+    {% if ':' in input_value %}
+      {# It's a time string like "06:00:00" #}
+      {% set parts = input_value.split(':') %}
+      {{ (parts[0] | int(0)) + ((parts[1] | int(0)) / 60) }}
+    {% elif input_value | regex_match('^[0-9]+$') %}
+      {# It's a pure number (seconds since midnight) #}
+      {{ (input_value | int / 3600) | round(2) }}
     {% else %}
       {{ default_hour }}
     {% endif %}
   
   day_start_decimal: >-
     {% set default_hour = 9 %}
-    {% set input_value = day_start_time %}
-    {% if input_value is defined and input_value is not none and input_value != '' %}
-      {% if input_value | string == input_value | string | int | string %}
-        {# It's a pure integer (seconds since midnight) #}
-        {{ (input_value | int / 3600) | round(2) }}
-      {% else %}
-        {# It's a string, try to parse it #}
-        {% set time_str = input_value | string %}
-        {% if ':' in time_str %}
-          {% set parts = time_str.replace(':', ' ').split() %}
-          {% if parts | length >= 2 %}
-            {{ (parts[0] | int(0)) + ((parts[1] | int(0)) / 60) }}
-          {% else %}
-            {{ default_hour }}
-          {% endif %}
-        {% else %}
-          {{ default_hour }}
-        {% endif %}
-      {% endif %}
+    {% set input_value = day_start_time | string %}
+    {% if ':' in input_value %}
+      {# It's a time string like "09:00:00" #}
+      {% set parts = input_value.split(':') %}
+      {{ (parts[0] | int(0)) + ((parts[1] | int(0)) / 60) }}
+    {% elif input_value | regex_match('^[0-9]+$') %}
+      {# It's a pure number (seconds since midnight) #}
+      {{ (input_value | int / 3600) | round(2) }}
     {% else %}
       {{ default_hour }}
     {% endif %}
   
   evening_start_decimal: >-
     {% set default_hour = 18 %}
-    {% set input_value = evening_start_time %}
-    {% if input_value is defined and input_value is not none and input_value != '' %}
-      {% if input_value | string == input_value | string | int | string %}
-        {# It's a pure integer (seconds since midnight) #}
-        {{ (input_value | int / 3600) | round(2) }}
-      {% else %}
-        {# It's a string, try to parse it #}
-        {% set time_str = input_value | string %}
-        {% if ':' in time_str %}
-          {% set parts = time_str.replace(':', ' ').split() %}
-          {% if parts | length >= 2 %}
-            {{ (parts[0] | int(0)) + ((parts[1] | int(0)) / 60) }}
-          {% else %}
-            {{ default_hour }}
-          {% endif %}
-        {% else %}
-          {{ default_hour }}
-        {% endif %}
-      {% endif %}
+    {% set input_value = evening_start_time | string %}
+    {% if ':' in input_value %}
+      {# It's a time string like "18:00:00" #}
+      {% set parts = input_value.split(':') %}
+      {{ (parts[0] | int(0)) + ((parts[1] | int(0)) / 60) }}
+    {% elif input_value | regex_match('^[0-9]+$') %}
+      {# It's a pure number (seconds since midnight) #}
+      {{ (input_value | int / 3600) | round(2) }}
     {% else %}
       {{ default_hour }}
     {% endif %}
   
   night_start_decimal: >-
     {% set default_hour = 22 %}
-    {% set input_value = night_start_time %}
-    {% if input_value is defined and input_value is not none and input_value != '' %}
-      {% if input_value | string == input_value | string | int | string %}
-        {# It's a pure integer (seconds since midnight) #}
-        {{ (input_value | int / 3600) | round(2) }}
-      {% else %}
-        {# It's a string, try to parse it #}
-        {% set time_str = input_value | string %}
-        {% if ':' in time_str %}
-          {% set parts = time_str.replace(':', ' ').split() %}
-          {% if parts | length >= 2 %}
-            {{ (parts[0] | int(0)) + ((parts[1] | int(0)) / 60) }}
-          {% else %}
-            {{ default_hour }}
-          {% endif %}
-        {% else %}
-          {{ default_hour }}
-        {% endif %}
-      {% endif %}
+    {% set input_value = night_start_time | string %}
+    {% if ':' in input_value %}
+      {# It's a time string like "22:00:00" #}
+      {% set parts = input_value.split(':') %}
+      {{ (parts[0] | int(0)) + ((parts[1] | int(0)) / 60) }}
+    {% elif input_value | regex_match('^[0-9]+$') %}
+      {# It's a pure number (seconds since midnight) #}
+      {{ (input_value | int / 3600) | round(2) }}
     {% else %}
       {{ default_hour }}
     {% endif %}
