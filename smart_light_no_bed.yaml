@@ -716,15 +716,13 @@ variables:
   light_switch: !input light_switch
   
 # Fix light_entities to ensure it's always a list
-  light_entities_raw: !input light_entities
   light_entities: >-
-    {% set entities = light_entities_raw %}
-    {% if entities == 0 or entities == '' or entities is none or entities == [] %}
-      []
-    {% elif entities is string and entities not in ['0', ''] %}
-      [entities]
-    {% elif entities is iterable and entities is not string and entities is not mapping %}
-      {{ entities | list }}
+    {% if light_entities is defined and light_entities and light_entities != 0 %}
+      {% if light_entities is string %}
+        [light_entities]
+      {% else %}
+        {{ light_entities }}
+      {% endif %}
     {% else %}
       []
     {% endif %}
