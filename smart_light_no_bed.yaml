@@ -8,7 +8,7 @@ blueprint:
     
     ## NEW IN v3.3: Fixed Switch Control
     
-    • **Switch Toggle Works** - Physical switch properly toggles lights in switch+lights mode
+    • **Switch Toggle Works** - Physical switch properly toggles lights in switch+lights mode. **Note** - For this to work, you need to have your smart lights wired to constant power! This can be done by wiring the lights behind your switch to the constant power supply from your house and not wiring it into the light switch itself.
     
     • **Better Manual Detection** - Switch presses correctly detected as manual control
     
