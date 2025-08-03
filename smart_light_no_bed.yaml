@@ -715,11 +715,20 @@ variables:
   illuminance_sensor: !input illuminance_sensor
   light_switch: !input light_switch
   
-  # Fix light_entities to ensure it's always a list
+# Fix light_entities to ensure it's always a list
   light_entities_raw: !input light_entities
+  light_entities_debug: >-
+    {% set entities = light_entities_raw %}
+    Type: {{ entities.__class__.__name__ if entities is defined else 'undefined' }}
+    Value: {{ entities }}
+    Is None: {{ entities is none }}
+    Is String: {{ entities is string }}
+    Is Sequence: {{ entities is sequence }}
+    Is Number: {{ entities is number }}
+    Is Integer: {{ entities is integer }}
   light_entities: >-
     {% set entities = light_entities_raw %}
-    {% if entities is none %}
+    {% if entities is none or entities == 0 or entities is number %}
       []
     {% elif entities is string %}
       {% if entities == '' or entities == 'None' or entities == 'none' %}
@@ -727,12 +736,8 @@ variables:
       {% else %}
         [entities]
       {% endif %}
-    {% elif entities is sequence and entities is not string and entities is not mapping %}
-      {% set result = [] %}
-      {% for item in entities %}
-        {% set result = result + [item] %}
-      {% endfor %}
-      {{ result }}
+    {% elif entities is iterable and entities is not string and entities is not mapping %}
+      {{ entities | list }}
     {% else %}
       []
     {% endif %}
@@ -1457,6 +1462,17 @@ action:
                 {% endif %}
   
   # Debug: Initial state logging
+  - if:
+    - condition: template
+      value_template: "{{ enable_debug_logs }}"
+    then:
+      - service: system_log.write
+        data:
+          level: warning
+          message: >-
+            ┌─ {{ room_name | upper }} LIGHT ENTITIES DEBUG ─────────────────────
+            │ {{ light_entities_debug }}
+            └─────────────────────────────────────────────────────
   - if:
       - condition: template
         value_template: "{{ enable_debug_logs }}"
