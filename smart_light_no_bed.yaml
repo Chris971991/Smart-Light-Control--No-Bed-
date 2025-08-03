@@ -1054,59 +1054,75 @@ variables:
   current_minute: "{{ now().minute }}"
   current_time_decimal: "{{ current_hour + (current_minute / 60) }}"
   
-  # Parse time inputs to decimal hours - SAFE VERSION
+  # Parse time inputs to decimal hours - ULTRA SAFE VERSION
   morning_start_decimal: >-
     {% set default_hour = 6 %}
-    {% set input_value = morning_start_time | string %}
-    {% if ':' in input_value %}
-      {# It's a time string like "06:00:00" #}
-      {% set parts = input_value.split(':') %}
-      {{ (parts[0] | int(0)) + ((parts[1] | int(0)) / 60) }}
-    {% elif input_value | regex_match('^[0-9]+$') %}
-      {# It's a pure number (seconds since midnight) #}
-      {{ (input_value | int / 3600) | round(2) }}
+    {% if morning_start_time is defined and morning_start_time is not none %}
+      {% set str_value = morning_start_time | string %}
+      {% if str_value.find(':') > -1 %}
+        {# Time string format #}
+        {% set hour = str_value[0:2] | int(0) %}
+        {% set minute = str_value[3:5] | int(0) %}
+        {{ hour + (minute / 60) }}
+      {% else %}
+        {# Assume it's seconds since midnight #}
+        {% set seconds = morning_start_time | int(0) %}
+        {{ (seconds / 3600) | round(2) }}
+      {% endif %}
     {% else %}
       {{ default_hour }}
     {% endif %}
   
   day_start_decimal: >-
     {% set default_hour = 9 %}
-    {% set input_value = day_start_time | string %}
-    {% if ':' in input_value %}
-      {# It's a time string like "09:00:00" #}
-      {% set parts = input_value.split(':') %}
-      {{ (parts[0] | int(0)) + ((parts[1] | int(0)) / 60) }}
-    {% elif input_value | regex_match('^[0-9]+$') %}
-      {# It's a pure number (seconds since midnight) #}
-      {{ (input_value | int / 3600) | round(2) }}
+    {% if day_start_time is defined and day_start_time is not none %}
+      {% set str_value = day_start_time | string %}
+      {% if str_value.find(':') > -1 %}
+        {# Time string format #}
+        {% set hour = str_value[0:2] | int(0) %}
+        {% set minute = str_value[3:5] | int(0) %}
+        {{ hour + (minute / 60) }}
+      {% else %}
+        {# Assume it's seconds since midnight #}
+        {% set seconds = day_start_time | int(0) %}
+        {{ (seconds / 3600) | round(2) }}
+      {% endif %}
     {% else %}
       {{ default_hour }}
     {% endif %}
   
   evening_start_decimal: >-
     {% set default_hour = 18 %}
-    {% set input_value = evening_start_time | string %}
-    {% if ':' in input_value %}
-      {# It's a time string like "18:00:00" #}
-      {% set parts = input_value.split(':') %}
-      {{ (parts[0] | int(0)) + ((parts[1] | int(0)) / 60) }}
-    {% elif input_value | regex_match('^[0-9]+$') %}
-      {# It's a pure number (seconds since midnight) #}
-      {{ (input_value | int / 3600) | round(2) }}
+    {% if evening_start_time is defined and evening_start_time is not none %}
+      {% set str_value = evening_start_time | string %}
+      {% if str_value.find(':') > -1 %}
+        {# Time string format #}
+        {% set hour = str_value[0:2] | int(0) %}
+        {% set minute = str_value[3:5] | int(0) %}
+        {{ hour + (minute / 60) }}
+      {% else %}
+        {# Assume it's seconds since midnight #}
+        {% set seconds = evening_start_time | int(0) %}
+        {{ (seconds / 3600) | round(2) }}
+      {% endif %}
     {% else %}
       {{ default_hour }}
     {% endif %}
   
   night_start_decimal: >-
     {% set default_hour = 22 %}
-    {% set input_value = night_start_time | string %}
-    {% if ':' in input_value %}
-      {# It's a time string like "22:00:00" #}
-      {% set parts = input_value.split(':') %}
-      {{ (parts[0] | int(0)) + ((parts[1] | int(0)) / 60) }}
-    {% elif input_value | regex_match('^[0-9]+$') %}
-      {# It's a pure number (seconds since midnight) #}
-      {{ (input_value | int / 3600) | round(2) }}
+    {% if night_start_time is defined and night_start_time is not none %}
+      {% set str_value = night_start_time | string %}
+      {% if str_value.find(':') > -1 %}
+        {# Time string format #}
+        {% set hour = str_value[0:2] | int(0) %}
+        {% set minute = str_value[3:5] | int(0) %}
+        {{ hour + (minute / 60) }}
+      {% else %}
+        {# Assume it's seconds since midnight #}
+        {% set seconds = night_start_time | int(0) %}
+        {{ (seconds / 3600) | round(2) }}
+      {% endif %}
     {% else %}
       {{ default_hour }}
     {% endif %}
