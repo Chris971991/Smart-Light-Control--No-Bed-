@@ -1054,19 +1054,62 @@ variables:
   current_minute: "{{ now().minute }}"
   current_time_decimal: "{{ current_hour + (current_minute / 60) }}"
   
-  # Parse time inputs to decimal hours
+# Parse time inputs to decimal hours
   morning_start_decimal: >-
-    {% set time = morning_start_time.split(':') %}
-    {{ time[0] | int + (time[1] | int / 60) }}
+    {% set time_str = morning_start_time | string %}
+    {% if time_str and ':' in time_str %}
+      {% if time_str.count(':') == 2 %}
+        {% set parts = time_str.split(':') %}
+        {{ parts[0] | int + (parts[1] | int / 60) }}
+      {% else %}
+        {% set parts = time_str.split(':') %}
+        {{ parts[0] | int + (parts[1] | int / 60) }}
+      {% endif %}
+    {% else %}
+      6
+    {% endif %}
+  
   day_start_decimal: >-
-    {% set time = day_start_time.split(':') %}
-    {{ time[0] | int + (time[1] | int / 60) }}
+    {% set time_str = day_start_time | string %}
+    {% if time_str and ':' in time_str %}
+      {% if time_str.count(':') == 2 %}
+        {% set parts = time_str.split(':') %}
+        {{ parts[0] | int + (parts[1] | int / 60) }}
+      {% else %}
+        {% set parts = time_str.split(':') %}
+        {{ parts[0] | int + (parts[1] | int / 60) }}
+      {% endif %}
+    {% else %}
+      9
+    {% endif %}
+  
   evening_start_decimal: >-
-    {% set time = evening_start_time.split(':') %}
-    {{ time[0] | int + (time[1] | int / 60) }}
+    {% set time_str = evening_start_time | string %}
+    {% if time_str and ':' in time_str %}
+      {% if time_str.count(':') == 2 %}
+        {% set parts = time_str.split(':') %}
+        {{ parts[0] | int + (parts[1] | int / 60) }}
+      {% else %}
+        {% set parts = time_str.split(':') %}
+        {{ parts[0] | int + (parts[1] | int / 60) }}
+      {% endif %}
+    {% else %}
+      18
+    {% endif %}
+  
   night_start_decimal: >-
-    {% set time = night_start_time.split(':') %}
-    {{ time[0] | int + (time[1] | int / 60) }}
+    {% set time_str = night_start_time | string %}
+    {% if time_str and ':' in time_str %}
+      {% if time_str.count(':') == 2 %}
+        {% set parts = time_str.split(':') %}
+        {{ parts[0] | int + (parts[1] | int / 60) }}
+      {% else %}
+        {% set parts = time_str.split(':') %}
+        {{ parts[0] | int + (parts[1] | int / 60) }}
+      {% endif %}
+    {% else %}
+      22
+    {% endif %}
   
   # Enhanced adaptive brightness calculation
   adaptive_brightness: >-
