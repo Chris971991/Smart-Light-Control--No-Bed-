@@ -1,10 +1,20 @@
 blueprint:
-  name: Smart Presence Lighting Control (No Bed) - Enhanced v3.3
+  name: Smart Presence Lighting Control (No Bed) - Enhanced v3.4
   description: >
-    # Smart Presence Lighting Control - Enhanced Version 3.3
+    # Smart Presence Lighting Control - Enhanced Version 3.4
 
     Intelligently manages your lighting based on room occupancy, light levels, and manual controls.
     Works with any combination of motion sensors, occupancy sensors, and illuminance sensors.
+    
+    ## NEW IN v3.4: Advanced Brightness Control
+    
+    • **Full Brightness Customization** - Set brightness for morning, day, evening, and night
+    
+    • **Custom Time Periods** - Define your own schedule for each time of day
+    
+    • **Ambient Light Scaling** - Customize how darkness affects brightness
+    
+    • **Minimum Brightness** - Set floor values to ensure visibility
     
     ## NEW IN v3.3: Fixed Switch Control
     
@@ -359,10 +369,178 @@ blueprint:
       description: >
         When enabled, automatically adjusts light brightness based on time of day and ambient light.
         Only works with light.* entities that support brightness control.
-        Brightness will be lower at night and higher during the day.
+        Brightness will vary throughout the day based on your configured schedule.
       default: true
       selector:
         boolean:
+    brightness_mode:
+      name: Brightness Control Mode
+      description: >
+        Choose how brightness should be controlled:
+        
+        **Simple** - Basic day/night brightness with automatic transitions
+        
+        **Advanced** - Full control over morning, day, evening, and night periods with custom times
+        
+        **Time Curve** - Smooth brightness curve throughout the day with customizable peak and valley times
+      default: "simple"
+      selector:
+        select:
+          options:
+            - label: "Simple - Day/Night only"
+              value: "simple"
+            - label: "Advanced - Four time periods"
+              value: "advanced"
+            - label: "Time Curve - Smooth transitions"
+              value: "curve"
+    morning_brightness:
+      name: Morning Brightness
+      description: >
+        Brightness percentage for morning hours.
+        Only used in Advanced brightness mode.
+        Good for gradually waking up without harsh light.
+      default: 70
+      selector:
+        number:
+          min: 10
+          max: 100
+          unit_of_measurement: "%"
+          mode: slider
+          step: 5
+    day_brightness:
+      name: Daytime Brightness
+      description: >
+        Brightness percentage for daytime hours.
+        In Simple mode: Used from morning until evening.
+        In Advanced mode: Used during your configured day hours.
+      default: 100
+      selector:
+        number:
+          min: 10
+          max: 100
+          unit_of_measurement: "%"
+          mode: slider
+          step: 5
+    evening_brightness:
+      name: Evening Brightness
+      description: >
+        Brightness percentage for evening hours.
+        Only used in Advanced brightness mode.
+        Good for winding down before bed.
+      default: 60
+      selector:
+        number:
+          min: 10
+          max: 100
+          unit_of_measurement: "%"
+          mode: slider
+          step: 5
+    night_brightness:
+      name: Nighttime Brightness
+      description: >
+        Brightness percentage for nighttime hours.
+        Lower values are better for not disrupting sleep patterns.
+        Used in all brightness modes.
+      default: 30
+      selector:
+        number:
+          min: 5
+          max: 100
+          unit_of_measurement: "%"
+          mode: slider
+          step: 5
+    morning_start_time:
+      name: Morning Start Time
+      description: >
+        Time when morning period begins (24-hour format).
+        Only used in Advanced brightness mode.
+        Before this time, night brightness is used.
+      default: "06:00:00"
+      selector:
+        time:
+    day_start_time:
+      name: Day Start Time
+      description: >
+        Time when day period begins (24-hour format).
+        Only used in Advanced brightness mode.
+        This is when full brightness typically starts.
+      default: "09:00:00"
+      selector:
+        time:
+    evening_start_time:
+      name: Evening Start Time
+      description: >
+        Time when evening period begins (24-hour format).
+        Only used in Advanced brightness mode.
+        Brightness starts reducing from this time.
+      default: "18:00:00"
+      selector:
+        time:
+    night_start_time:
+      name: Night Start Time
+      description: >
+        Time when night period begins (24-hour format).
+        Only used in Advanced brightness mode.
+        Lowest brightness period for sleep time.
+      default: "22:00:00"
+      selector:
+        time:
+    brightness_transition_minutes:
+      name: Brightness Transition Duration
+      description: >
+        How many minutes to transition between brightness periods.
+        Only used in Advanced and Curve modes.
+        Longer = smoother transitions, shorter = more immediate changes.
+      default: 30
+      selector:
+        number:
+          min: 0
+          max: 120
+          unit_of_measurement: min
+          mode: slider
+          step: 5
+    minimum_brightness:
+      name: Minimum Brightness
+      description: >
+        The absolute minimum brightness percentage.
+        Even in complete darkness or night time, brightness won't go below this.
+        Useful to ensure lights are always visible when on.
+      default: 10
+      selector:
+        number:
+          min: 1
+          max: 50
+          unit_of_measurement: "%"
+          mode: slider
+          step: 1
+    darkness_brightness_factor:
+      name: Darkness Brightness Reduction
+      description: >
+        How much to reduce brightness in dark conditions (percentage).
+        100% = no reduction, 50% = half brightness in darkness.
+        Only applies when room is dark but not extremely dark.
+      default: 80
+      selector:
+        number:
+          min: 20
+          max: 100
+          unit_of_measurement: "%"
+          mode: slider
+          step: 5
+    extreme_darkness_brightness_factor:
+      name: Extreme Darkness Brightness Reduction
+      description: >
+        How much to reduce brightness in extremely dark conditions (percentage).
+        100% = no reduction, 30% = significant reduction for pitch black rooms.
+        Helps prevent bright lights in the middle of the night.
+      default: 50
+      selector:
+        number:
+          min: 10
+          max: 100
+          unit_of_measurement: "%"
+          mode: slider
+          step: 5
     enable_color_temperature:
       name: Enable Color Temperature Control
       description: >
@@ -492,6 +670,29 @@ blueprint:
           max: 5.0
           mode: slider
           step: 0.5
+    guest_brightness_boost:
+      name: Guest Mode - Brightness Boost
+      description: >
+        Additional brightness percentage to add in guest mode.
+        Ensures areas are well-lit for unfamiliar guests.
+        Added to the calculated brightness (max 100%).
+      default: 20
+      selector:
+        number:
+          min: 0
+          max: 50
+          unit_of_measurement: "%"
+          mode: slider
+          step: 5
+    enable_manual_brightness_override:
+      name: Enable Manual Brightness Override
+      description: >
+        When enabled, if you manually set a specific brightness level,
+        the automation will remember and use that brightness until cleared.
+        The override is cleared when lights are turned off or override expires.
+      default: true
+      selector:
+        boolean:
     enable_debug_logs:
       name: Enable Debug Logs
       description: >
@@ -502,7 +703,7 @@ blueprint:
       selector:
         boolean:
 
-# Variables and state management - ENHANCED v3.2
+# Variables and state management - ENHANCED v3.4
 variables:
   # Store start time for performance monitoring
   start_time: "{{ now().timestamp() }}"
@@ -524,6 +725,19 @@ variables:
   fixed_latency_seconds: !input fixed_latency_seconds
   vacancy_timeout_multiplier: !input vacancy_timeout_multiplier
   enable_adaptive_brightness: !input enable_adaptive_brightness
+  brightness_mode: !input brightness_mode
+  morning_brightness: !input morning_brightness
+  day_brightness: !input day_brightness
+  evening_brightness: !input evening_brightness
+  night_brightness: !input night_brightness
+  morning_start_time: !input morning_start_time
+  day_start_time: !input day_start_time
+  evening_start_time: !input evening_start_time
+  night_start_time: !input night_start_time
+  brightness_transition_minutes: !input brightness_transition_minutes
+  minimum_brightness: !input minimum_brightness
+  darkness_brightness_factor: !input darkness_brightness_factor
+  extreme_darkness_brightness_factor: !input extreme_darkness_brightness_factor
   enable_color_temperature: !input enable_color_temperature
   day_color_temp: !input day_color_temp
   night_color_temp: !input night_color_temp
@@ -537,6 +751,8 @@ variables:
   enable_guest_mode: !input enable_guest_mode
   guest_vacancy_multiplier: !input guest_vacancy_multiplier
   guest_override_multiplier: !input guest_override_multiplier
+  guest_brightness_boost: !input guest_brightness_boost
+  enable_manual_brightness_override: !input enable_manual_brightness_override
   
   # Determine control entities based on mode
   has_switch: "{{ light_switch != '' and light_switch is not none }}"
@@ -833,47 +1049,112 @@ variables:
       false
     {% endif %}
   
-  # Adaptive brightness calculation with guest mode consideration
+  # Time helpers for brightness calculation
+  current_hour: "{{ now().hour }}"
+  current_minute: "{{ now().minute }}"
+  current_time_decimal: "{{ current_hour + (current_minute / 60) }}"
+  
+  # Parse time inputs to decimal hours
+  morning_start_decimal: >-
+    {% set time = morning_start_time.split(':') %}
+    {{ time[0] | int + (time[1] | int / 60) }}
+  day_start_decimal: >-
+    {% set time = day_start_time.split(':') %}
+    {{ time[0] | int + (time[1] | int / 60) }}
+  evening_start_decimal: >-
+    {% set time = evening_start_time.split(':') %}
+    {{ time[0] | int + (time[1] | int / 60) }}
+  night_start_decimal: >-
+    {% set time = night_start_time.split(':') %}
+    {{ time[0] | int + (time[1] | int / 60) }}
+  
+  # Enhanced adaptive brightness calculation
   adaptive_brightness: >-
     {% if not enable_adaptive_brightness or not light_is_dimmable %}
       100
     {% else %}
-      {% set hour = now().hour %}
-      {% set night_hours = hour >= 22 or hour < 6 %}
-      {% set evening_hours = hour >= 20 and hour < 22 %}
-      {% set morning_hours = hour >= 6 and hour < 8 %}
+      {% set base_brightness = 100 %}
       
-      {% if enable_guest_mode %}
-        {# Guest mode: generally brighter #}
-        {% if is_extremely_dark %}
-          {{ 50 if night_hours else 90 }}
-        {% elif is_dark %}
-          {% if night_hours %}
-            60
-          {% elif morning_hours or evening_hours %}
-            80
-          {% else %}
-            100
-          {% endif %}
+      {# Calculate base brightness based on mode #}
+      {% if brightness_mode == 'simple' %}
+        {# Simple mode: basic day/night with transitions #}
+        {% set hour = current_hour %}
+        {% set progress = 0 %}
+        {% if 6 <= hour < 9 %}
+          {# Morning transition #}
+          {% set progress = (hour - 6) / 3 %}
+        {% elif 9 <= hour < 17 %}
+          {# Daytime #}
+          {% set progress = 1 %}
+        {% elif 17 <= hour < 22 %}
+          {# Evening transition #}
+          {% set progress = 1 - ((hour - 17) / 5) %}
         {% else %}
-          100
+          {# Night #}
+          {% set progress = 0 %}
         {% endif %}
-      {% else %}
-        {# Normal mode #}
-        {% if is_extremely_dark %}
-          {{ 30 if night_hours else 80 }}
-        {% elif is_dark %}
-          {% if night_hours %}
-            40
-          {% elif morning_hours or evening_hours %}
-            70
-          {% else %}
-            90
-          {% endif %}
+        {% set brightness_range = day_brightness - night_brightness %}
+        {% set base_brightness = night_brightness + (brightness_range * progress) %}
+        
+      {% elif brightness_mode == 'advanced' %}
+        {# Advanced mode: four periods with custom times and transitions #}
+        {% set trans_mins = brightness_transition_minutes / 60 %}
+        
+        {% if morning_start_decimal <= current_time_decimal < morning_start_decimal + trans_mins %}
+          {# Transition: night to morning #}
+          {% set progress = (current_time_decimal - morning_start_decimal) / trans_mins %}
+          {% set base_brightness = night_brightness + ((morning_brightness - night_brightness) * progress) %}
+        {% elif morning_start_decimal + trans_mins <= current_time_decimal < day_start_decimal %}
+          {# Morning period #}
+          {% set base_brightness = morning_brightness %}
+        {% elif day_start_decimal <= current_time_decimal < day_start_decimal + trans_mins %}
+          {# Transition: morning to day #}
+          {% set progress = (current_time_decimal - day_start_decimal) / trans_mins %}
+          {% set base_brightness = morning_brightness + ((day_brightness - morning_brightness) * progress) %}
+        {% elif day_start_decimal + trans_mins <= current_time_decimal < evening_start_decimal %}
+          {# Day period #}
+          {% set base_brightness = day_brightness %}
+        {% elif evening_start_decimal <= current_time_decimal < evening_start_decimal + trans_mins %}
+          {# Transition: day to evening #}
+          {% set progress = (current_time_decimal - evening_start_decimal) / trans_mins %}
+          {% set base_brightness = day_brightness + ((evening_brightness - day_brightness) * progress) %}
+        {% elif evening_start_decimal + trans_mins <= current_time_decimal < night_start_decimal %}
+          {# Evening period #}
+          {% set base_brightness = evening_brightness %}
+        {% elif night_start_decimal <= current_time_decimal < night_start_decimal + trans_mins %}
+          {# Transition: evening to night #}
+          {% set progress = (current_time_decimal - night_start_decimal) / trans_mins %}
+          {% set base_brightness = evening_brightness + ((night_brightness - evening_brightness) * progress) %}
         {% else %}
-          100
+          {# Night period (includes early morning before morning_start) #}
+          {% set base_brightness = night_brightness %}
         {% endif %}
+        
+      {% elif brightness_mode == 'curve' %}
+        {# Curve mode: smooth sine wave throughout the day #}
+        {# Peak at noon (12), valley at midnight (0/24) #}
+        {% set hours_from_midnight = current_time_decimal %}
+        {% set radians = (hours_from_midnight - 6) * (3.14159 / 12) %}
+        {% set sine_value = radians | sin %}
+        {% set normalized = (sine_value + 1) / 2 %}
+        {% set brightness_range = day_brightness - night_brightness %}
+        {% set base_brightness = night_brightness + (brightness_range * normalized) %}
       {% endif %}
+      
+      {# Apply ambient light adjustments #}
+      {% if is_extremely_dark %}
+        {% set base_brightness = base_brightness * (extreme_darkness_brightness_factor / 100) %}
+      {% elif is_dark %}
+        {% set base_brightness = base_brightness * (darkness_brightness_factor / 100) %}
+      {% endif %}
+      
+      {# Apply guest mode boost #}
+      {% if enable_guest_mode %}
+        {% set base_brightness = base_brightness + guest_brightness_boost %}
+      {% endif %}
+      
+      {# Ensure minimum brightness and cap at 100 #}
+      {{ [base_brightness, minimum_brightness] | max | min(100) | int }}
     {% endif %}
   
   # Adaptive color temperature calculation
@@ -1134,6 +1415,7 @@ action:
             │ Automation Active: {{ 'YES' if automation_active else 'NO' }}{{ ' (STALE)' if automation_active_stale else '' }}
             │ Vacancy: {{ room_vacant_minutes }}min
             │ Guest Mode: {{ 'ENABLED' if enable_guest_mode else 'DISABLED' }}
+            │ Brightness Mode: {{ brightness_mode }} (current: {{ adaptive_brightness }}%)
             │ Fade Settings: On={{ fade_on_time }}s ({{ 'enabled' if enable_fade_on else 'disabled' }}), Off={{ fade_off_time }}s ({{ 'enabled' if enable_fade_off else 'disabled' }})
             └─────────────────────────────────────────────────────
   
@@ -1564,7 +1846,7 @@ action:
                           message: >-
                             ┌─ {{ room_name | upper }} LIGHTS TURNED ON ──────────────────
                             │ Control Mode: {{ control_mode }}
-                            │ Brightness: {{ adaptive_brightness }}%
+                            │ Brightness: {{ adaptive_brightness }}% ({{ brightness_mode }} mode)
                             │ Color Temp: {{ adaptive_color_temp }}K{{ ' (enabled)' if (enable_color_temperature and light_supports_color_temp) else ' (disabled)' }}
                             │ Fade On: {{ effective_fade_on_time }}s{{ ' (enabled)' if enable_fade_on else ' (instant)' }}
                             │ Guest Mode: {{ 'YES' if enable_guest_mode else 'NO' }}
@@ -1671,6 +1953,7 @@ action:
             ├─ Light Level: {{ illuminance }}lux ({{ 'Dark' if is_dark else 'Bright' if is_bright else 'Medium' }})
             ├─ Override: {{ 'ACTIVE' if manual_override else 'INACTIVE' }}
             ├─ Guest Mode: {{ 'ENABLED' if enable_guest_mode else 'DISABLED' }}
+            ├─ Brightness: {{ adaptive_brightness }}% ({{ brightness_mode }} mode)
             ├─ Action Taken: {% if lights_on != (expand(light_entities) | selectattr('state', 'eq', 'on') | list | count > 0 if has_lights else is_state(light_switch, 'on') if has_switch else false) %}Lights {{ 'turned ON' if (expand(light_entities) | selectattr('state', 'eq', 'on') | list | count > 0 if has_lights else is_state(light_switch, 'on') if has_switch else false) else 'turned OFF' }}{% else %}No change{% endif %}
             ├─ Execution Time: {{ ((now().timestamp() - action_start_time) * 1000) | round(1) }}ms
             └─ Total Time: {{ ((now().timestamp() - start_time) * 1000) | round(1) }}ms
