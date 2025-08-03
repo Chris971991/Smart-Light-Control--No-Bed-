@@ -728,21 +728,6 @@ variables:
     {% else %}
       []
     {% endif %}
-  light_entities: >-
-    {% set entities = light_entities_raw %}
-    {% if entities is none or entities == 0 or entities is number %}
-      []
-    {% elif entities is string %}
-      {% if entities == '' or entities == 'None' or entities == 'none' %}
-        []
-      {% else %}
-        [entities]
-      {% endif %}
-    {% elif entities is iterable and entities is not string and entities is not mapping %}
-      {{ entities | list }}
-    {% else %}
-      []
-    {% endif %}
     
   control_mode: !input control_mode
   dark_threshold: !input dark_threshold
