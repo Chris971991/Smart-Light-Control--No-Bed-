@@ -1222,10 +1222,12 @@ action:
               skip_condition: false
           - stop: "Override cleared - retriggering automation"
   
-  # Check for active manual override
+  # Check for active manual override (but allow switch presses in switch_and_lights mode)
   - if:
       - condition: template
-        value_template: "{{ manual_override and not is_primary_trigger }}"
+        value_template: >-
+          {{ manual_override and not is_primary_trigger and 
+            not (control_mode == 'switch_and_lights' and trigger.entity_id == light_switch) }}
     then:
       - if:
           - condition: template
