@@ -1054,40 +1054,21 @@ variables:
   current_minute: "{{ now().minute }}"
   current_time_decimal: "{{ current_hour + (current_minute / 60) }}"
   
-  # Parse time inputs to decimal hours - FIXED VERSION
+  # Parse time inputs to decimal hours - SIMPLIFIED VERSION
   morning_start_decimal: >-
     {% set default_hour = 6 %}
-    {% if morning_start_time is defined and morning_start_time is not none and morning_start_time != '' %}
-      {% if morning_start_time is number %}
-        {# If it's a number, assume it's seconds since midnight #}
-        {{ (morning_start_time / 3600) | round(2) }}
-      {% elif morning_start_time is string %}
-        {% if ':' in morning_start_time %}
-          {% set parts = morning_start_time.split(':') %}
-          {% if parts | length >= 2 %}
-            {{ parts[0] | int(0) + (parts[1] | int(0) / 60) }}
-          {% else %}
-            {{ default_hour }}
-          {% endif %}
-        {% else %}
-          {# Try to parse as a number string #}
-          {% set num = morning_start_time | float(-1) %}
-          {% if num >= 0 %}
-            {{ (num / 3600) | round(2) }}
-          {% else %}
-            {{ default_hour }}
-          {% endif %}
-        {% endif %}
-      {% elif morning_start_time.__class__.__name__ == 'time' %}
-        {# Handle time object #}
-        {{ morning_start_time.hour + (morning_start_time.minute / 60) }}
+    {% set input_value = morning_start_time %}
+    {% if input_value is defined and input_value is not none and input_value != '' %}
+      {% if input_value | string == input_value | string | int | string %}
+        {# It's a pure integer (seconds since midnight) #}
+        {{ (input_value | int / 3600) | round(2) }}
       {% else %}
-        {# Try to convert to string and parse #}
-        {% set time_str = morning_start_time | string %}
+        {# It's a string, try to parse it #}
+        {% set time_str = input_value | string %}
         {% if ':' in time_str %}
-          {% set parts = time_str.split(':') %}
+          {% set parts = time_str.replace(':', ' ').split() %}
           {% if parts | length >= 2 %}
-            {{ parts[0] | int(0) + (parts[1] | int(0) / 60) }}
+            {{ (parts[0] | int(0)) + ((parts[1] | int(0)) / 60) }}
           {% else %}
             {{ default_hour }}
           {% endif %}
@@ -1101,37 +1082,18 @@ variables:
   
   day_start_decimal: >-
     {% set default_hour = 9 %}
-    {% if day_start_time is defined and day_start_time is not none and day_start_time != '' %}
-      {% if day_start_time is number %}
-        {# If it's a number, assume it's seconds since midnight #}
-        {{ (day_start_time / 3600) | round(2) }}
-      {% elif day_start_time is string %}
-        {% if ':' in day_start_time %}
-          {% set parts = day_start_time.split(':') %}
-          {% if parts | length >= 2 %}
-            {{ parts[0] | int(0) + (parts[1] | int(0) / 60) }}
-          {% else %}
-            {{ default_hour }}
-          {% endif %}
-        {% else %}
-          {# Try to parse as a number string #}
-          {% set num = day_start_time | float(-1) %}
-          {% if num >= 0 %}
-            {{ (num / 3600) | round(2) }}
-          {% else %}
-            {{ default_hour }}
-          {% endif %}
-        {% endif %}
-      {% elif day_start_time.__class__.__name__ == 'time' %}
-        {# Handle time object #}
-        {{ day_start_time.hour + (day_start_time.minute / 60) }}
+    {% set input_value = day_start_time %}
+    {% if input_value is defined and input_value is not none and input_value != '' %}
+      {% if input_value | string == input_value | string | int | string %}
+        {# It's a pure integer (seconds since midnight) #}
+        {{ (input_value | int / 3600) | round(2) }}
       {% else %}
-        {# Try to convert to string and parse #}
-        {% set time_str = day_start_time | string %}
+        {# It's a string, try to parse it #}
+        {% set time_str = input_value | string %}
         {% if ':' in time_str %}
-          {% set parts = time_str.split(':') %}
+          {% set parts = time_str.replace(':', ' ').split() %}
           {% if parts | length >= 2 %}
-            {{ parts[0] | int(0) + (parts[1] | int(0) / 60) }}
+            {{ (parts[0] | int(0)) + ((parts[1] | int(0)) / 60) }}
           {% else %}
             {{ default_hour }}
           {% endif %}
@@ -1145,37 +1107,18 @@ variables:
   
   evening_start_decimal: >-
     {% set default_hour = 18 %}
-    {% if evening_start_time is defined and evening_start_time is not none and evening_start_time != '' %}
-      {% if evening_start_time is number %}
-        {# If it's a number, assume it's seconds since midnight #}
-        {{ (evening_start_time / 3600) | round(2) }}
-      {% elif evening_start_time is string %}
-        {% if ':' in evening_start_time %}
-          {% set parts = evening_start_time.split(':') %}
-          {% if parts | length >= 2 %}
-            {{ parts[0] | int(0) + (parts[1] | int(0) / 60) }}
-          {% else %}
-            {{ default_hour }}
-          {% endif %}
-        {% else %}
-          {# Try to parse as a number string #}
-          {% set num = evening_start_time | float(-1) %}
-          {% if num >= 0 %}
-            {{ (num / 3600) | round(2) }}
-          {% else %}
-            {{ default_hour }}
-          {% endif %}
-        {% endif %}
-      {% elif evening_start_time.__class__.__name__ == 'time' %}
-        {# Handle time object #}
-        {{ evening_start_time.hour + (evening_start_time.minute / 60) }}
+    {% set input_value = evening_start_time %}
+    {% if input_value is defined and input_value is not none and input_value != '' %}
+      {% if input_value | string == input_value | string | int | string %}
+        {# It's a pure integer (seconds since midnight) #}
+        {{ (input_value | int / 3600) | round(2) }}
       {% else %}
-        {# Try to convert to string and parse #}
-        {% set time_str = evening_start_time | string %}
+        {# It's a string, try to parse it #}
+        {% set time_str = input_value | string %}
         {% if ':' in time_str %}
-          {% set parts = time_str.split(':') %}
+          {% set parts = time_str.replace(':', ' ').split() %}
           {% if parts | length >= 2 %}
-            {{ parts[0] | int(0) + (parts[1] | int(0) / 60) }}
+            {{ (parts[0] | int(0)) + ((parts[1] | int(0)) / 60) }}
           {% else %}
             {{ default_hour }}
           {% endif %}
@@ -1189,37 +1132,18 @@ variables:
   
   night_start_decimal: >-
     {% set default_hour = 22 %}
-    {% if night_start_time is defined and night_start_time is not none and night_start_time != '' %}
-      {% if night_start_time is number %}
-        {# If it's a number, assume it's seconds since midnight #}
-        {{ (night_start_time / 3600) | round(2) }}
-      {% elif night_start_time is string %}
-        {% if ':' in night_start_time %}
-          {% set parts = night_start_time.split(':') %}
-          {% if parts | length >= 2 %}
-            {{ parts[0] | int(0) + (parts[1] | int(0) / 60) }}
-          {% else %}
-            {{ default_hour }}
-          {% endif %}
-        {% else %}
-          {# Try to parse as a number string #}
-          {% set num = night_start_time | float(-1) %}
-          {% if num >= 0 %}
-            {{ (num / 3600) | round(2) }}
-          {% else %}
-            {{ default_hour }}
-          {% endif %}
-        {% endif %}
-      {% elif night_start_time.__class__.__name__ == 'time' %}
-        {# Handle time object #}
-        {{ night_start_time.hour + (night_start_time.minute / 60) }}
+    {% set input_value = night_start_time %}
+    {% if input_value is defined and input_value is not none and input_value != '' %}
+      {% if input_value | string == input_value | string | int | string %}
+        {# It's a pure integer (seconds since midnight) #}
+        {{ (input_value | int / 3600) | round(2) }}
       {% else %}
-        {# Try to convert to string and parse #}
-        {% set time_str = night_start_time | string %}
+        {# It's a string, try to parse it #}
+        {% set time_str = input_value | string %}
         {% if ':' in time_str %}
-          {% set parts = time_str.split(':') %}
+          {% set parts = time_str.replace(':', ' ').split() %}
           {% if parts | length >= 2 %}
-            {{ parts[0] | int(0) + (parts[1] | int(0) / 60) }}
+            {{ (parts[0] | int(0)) + ((parts[1] | int(0)) / 60) }}
           {% else %}
             {{ default_hour }}
           {% endif %}
