@@ -714,7 +714,7 @@ variables:
   presence_mmwave_sensor: !input presence_mmwave_sensor
   illuminance_sensor: !input illuminance_sensor
   light_switch: !input light_switch
-  light_entities: !input light_entities
+  light_entities_raw: !input light_entities
   control_mode: !input control_mode
   dark_threshold: !input dark_threshold
   bright_threshold: !input bright_threshold
@@ -753,6 +753,24 @@ variables:
   guest_override_multiplier: !input guest_override_multiplier
   guest_brightness_boost: !input guest_brightness_boost
   enable_manual_brightness_override: !input enable_manual_brightness_override
+  
+  # Normalize light_entities to always be a list
+  light_entities: >-
+    {% if light_entities_raw is none %}
+      []
+    {% elif light_entities_raw is string %}
+      {% if light_entities_raw == '' %}
+        []
+      {% else %}
+        [light_entities_raw]
+      {% endif %}
+    {% elif light_entities_raw is not iterable %}
+      []
+    {% elif light_entities_raw is iterable and light_entities_raw is not string %}
+      {{ light_entities_raw | list }}
+    {% else %}
+      []
+    {% endif %}
   
   # Determine control entities based on mode
   has_switch: "{{ light_switch != '' and light_switch is not none }}"
