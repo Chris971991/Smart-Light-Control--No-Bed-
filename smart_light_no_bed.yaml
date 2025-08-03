@@ -728,7 +728,11 @@ variables:
         [entities]
       {% endif %}
     {% elif entities is sequence and entities is not string and entities is not mapping %}
-      {{ entities | list }}
+      {% set result = [] %}
+      {% for item in entities %}
+        {% set result = result + [item] %}
+      {% endfor %}
+      {{ result }}
     {% else %}
       []
     {% endif %}
@@ -775,23 +779,25 @@ variables:
   # Determine control entities based on mode
   has_switch: "{{ light_switch != '' and light_switch is not none }}"
   has_lights: >-
-    {% if light_entities is sequence and light_entities is not string and light_entities is not mapping %}
-      {{ light_entities | length > 0 }}
+    {% set entities = light_entities %}
+    {% if entities is sequence and entities is not string and entities is not mapping %}
+      {{ entities | length > 0 }}
     {% else %}
       false
     {% endif %}
   
   # Primary control entity (for state checking and basic control)
   primary_control_entity: >-
+    {% set entities = light_entities %}
     {% if control_mode == 'lights_only' %}
-      {% if has_lights and light_entities | length > 0 %}
-        {{ light_entities[0] }}
+      {% if has_lights and entities is sequence and entities | length > 0 %}
+        {{ entities[0] }}
       {% else %}
         none
       {% endif %}
     {% elif control_mode == 'switch_and_lights' %}
-      {% if has_lights and light_entities | length > 0 %}
-        {{ light_entities[0] }}
+      {% if has_lights and entities is sequence and entities | length > 0 %}
+        {{ entities[0] }}
       {% elif has_switch %}
         {{ light_switch }}
       {% else %}
@@ -834,7 +840,7 @@ variables:
       'unavailable'
     {% endif %}
   
-  # Light states (checking all entities)
+# Light states (checking all entities)
   lights_on: >-
     {% if control_mode == 'switch_only' %}
       {% if has_switch %}
@@ -844,7 +850,16 @@ variables:
       {% endif %}
     {% else %}
       {% if has_lights %}
-        {{ expand(light_entities) | selectattr('state', 'eq', 'on') | list | count > 0 }}
+        {% set entities = light_entities %}
+        {% set ns = namespace(found=false) %}
+        {% if entities is sequence %}
+          {% for entity in entities %}
+            {% if is_state(entity, 'on') %}
+              {% set ns.found = true %}
+            {% endif %}
+          {% endfor %}
+        {% endif %}
+        {{ ns.found }}
       {% else %}
         false
       {% endif %}
@@ -979,17 +994,17 @@ variables:
       {% else %}
         true
       {% endif %}
-    {% elif control_mode == 'lights_only' and has_lights and trigger.entity_id in light_entities %}
-      {% if automation_active and not automation_active_stale and time_since_last_automation < 1 %}
-        false
-      {% else %}
-        true
+    {% elif control_mode == 'lights_only' and has_lights %}
+      {% set entities = light_entities %}
+      {% set found = false %}
+      {% if entities is sequence %}
+        {% for entity in entities %}
+          {% if trigger.entity_id == entity %}
+            {% set found = true %}
+          {% endif %}
+        {% endfor %}
       {% endif %}
-    {% elif control_mode == 'switch_and_lights' %}
-      {% if trigger.entity_id == light_switch %}
-        {# Switch press in switch_and_lights mode is always manual #}
-        true
-      {% elif has_lights and trigger.entity_id in light_entities %}
+      {% if found %}
         {% if automation_active and not automation_active_stale and time_since_last_automation < 1 %}
           false
         {% else %}
@@ -997,6 +1012,29 @@ variables:
         {% endif %}
       {% else %}
         false
+      {% endif %}
+    {% elif control_mode == 'switch_and_lights' %}
+      {% if trigger.entity_id == light_switch %}
+        true
+      {% else %}
+        {% set entities = light_entities %}
+        {% set found = false %}
+        {% if entities is sequence %}
+          {% for entity in entities %}
+            {% if trigger.entity_id == entity %}
+              {% set found = true %}
+            {% endif %}
+          {% endfor %}
+        {% endif %}
+        {% if found %}
+          {% if automation_active and not automation_active_stale and time_since_last_automation < 1 %}
+            false
+          {% else %}
+            true
+          {% endif %}
+        {% else %}
+          false
+        {% endif %}
       {% endif %}
     {% else %}
       false
@@ -1007,7 +1045,20 @@ variables:
     {% if control_mode == 'switch_only' %}
       {{ trigger.platform == 'state' and trigger.entity_id == light_switch }}
     {% else %}
-      {{ trigger.platform == 'state' and has_lights and trigger.entity_id in light_entities }}
+      {% if trigger.platform == 'state' and has_lights %}
+        {% set entities = light_entities %}
+        {% set found = false %}
+        {% if entities is sequence %}
+          {% for entity in entities %}
+            {% if trigger.entity_id == entity %}
+              {% set found = true %}
+            {% endif %}
+          {% endfor %}
+        {% endif %}
+        {{ found }}
+      {% else %}
+        false
+      {% endif %}
     {% endif %}
   is_pir_trigger: "{{ trigger.platform == 'state' and trigger.entity_id == presence_pir_sensor }}"
   is_mmwave_trigger: "{{ trigger.platform == 'state' and trigger.entity_id == mmwave_sensor }}"
