@@ -717,15 +717,17 @@ variables:
   
 # Fix light_entities to ensure it's always a list
   light_entities_raw: !input light_entities
-  light_entities_debug: >-
+  light_entities: >-
     {% set entities = light_entities_raw %}
-    Type: {{ entities.__class__.__name__ if entities is defined else 'undefined' }}
-    Value: {{ entities }}
-    Is None: {{ entities is none }}
-    Is String: {{ entities is string }}
-    Is Sequence: {{ entities is sequence }}
-    Is Number: {{ entities is number }}
-    Is Integer: {{ entities is integer }}
+    {% if entities == 0 or entities == '' or entities is none or entities == [] %}
+      []
+    {% elif entities is string and entities not in ['0', ''] %}
+      [entities]
+    {% elif entities is iterable and entities is not string and entities is not mapping %}
+      {{ entities | list }}
+    {% else %}
+      []
+    {% endif %}
   light_entities: >-
     {% set entities = light_entities_raw %}
     {% if entities is none or entities == 0 or entities is number %}
@@ -785,7 +787,9 @@ variables:
   has_switch: "{{ light_switch != '' and light_switch is not none }}"
   has_lights: >-
     {% set entities = light_entities %}
-    {% if entities is sequence and entities is not string and entities is not mapping %}
+    {% if entities == [] or entities == 0 or entities == '' or entities is none %}
+      false
+    {% elif entities is iterable and entities is not string and entities is not mapping %}
       {{ entities | length > 0 }}
     {% else %}
       false
