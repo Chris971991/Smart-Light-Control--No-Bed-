@@ -715,6 +715,21 @@ variables:
   illuminance_sensor: !input illuminance_sensor
   light_switch: !input light_switch
   light_entities: !input light_entities
+  light_entities: >-
+    {% set entities = light_entities_raw %}
+    {% if entities is string %}
+      {% if entities == '' or entities == 'None' or entities == 'none' %}
+        []
+      {% else %}
+        [entities]
+      {% endif %}
+    {% elif entities is sequence and entities is not string %}
+      {{ entities }}
+    {% elif entities is none %}
+      []
+    {% else %}
+      []
+    {% endif %}
   control_mode: !input control_mode
   dark_threshold: !input dark_threshold
   bright_threshold: !input bright_threshold
@@ -756,7 +771,12 @@ variables:
   
   # Determine control entities based on mode
   has_switch: "{{ light_switch != '' and light_switch is not none }}"
-  has_lights: "{{ light_entities | length > 0 }}"
+  has_lights: >-
+    {% if light_entities is sequence and light_entities is not string %}
+      {{ light_entities | length > 0 }}
+    {% else %}
+      false
+    {% endif %}
   
   # Primary control entity (for state checking and basic control)
   primary_control_entity: >-
