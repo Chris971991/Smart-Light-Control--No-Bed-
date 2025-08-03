@@ -174,7 +174,7 @@ blueprint:
       description: >
         **OPTIONAL** - The switch that controls your lights.
         
-        • **For smart switch + smart lights**: Select your wall switch here. The switch acts as a controller - physical presses send commands to control the smart lights (doesn't cut power).
+        • **For smart switch + smart lights**: Select your wall switch here. The switch acts as a controller - physical presses send commands to control the smart lights (doesn't cut power). **Note** - For this to work, you need to have your smart lights wired to constant power! This can be done by wiring the lights behind your switch to the constant power supply from your house and not wiring it into the light switch itself.
         
         • **For smart lights only**: Leave this empty and use the Light Entities field below.
         
