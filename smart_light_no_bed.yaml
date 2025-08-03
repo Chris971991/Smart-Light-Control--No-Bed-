@@ -192,7 +192,7 @@ blueprint:
         
         • **For smart lights**: Select one or more light entities to control directly.
         
-        • **For smart switch + smart lights**: Select your smart lights here. The switch acts as a controller for these lights.
+        • **For smart switch + smart lights**: Select your smart lights here. The switch acts as a controller for these lights. **Note** - For this to work, you need to have your smart lights wired to constant power! This can be done by wiring the lights behind your switch to the constant power supply from your house and not wiring it into the light switch itself.
         
         • **For smart switch only**: Leave this empty.
         
@@ -207,7 +207,7 @@ blueprint:
       description: >
         Select how your lighting is set up:
         
-        **Smart Switch + Smart Lights** - You have a wall switch AND smart bulbs. The switch acts as a controller - pressing it sends commands to toggle the smart lights (doesn't cut power).
+        **Smart Switch + Smart Lights** - You have a wall switch AND smart bulbs. The switch acts as a controller - pressing it sends commands to toggle the smart lights (doesn't cut power). **Note** - For this to work, you need to have your smart lights wired to constant power! This can be done by wiring the lights behind your switch to the constant power supply from your house and not wiring it into the light switch itself.
         
         **Smart Lights Only** - You only have smart bulbs with no separate switch (e.g., lamps, integrated fixtures).
         
