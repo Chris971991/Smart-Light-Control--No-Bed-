@@ -1,10 +1,16 @@
 blueprint:
-  name: Smart Presence Lighting Control (No Bed) - Enhanced v3.2
+  name: Smart Presence Lighting Control (No Bed) - Enhanced v3.3
   description: >
-    # Smart Presence Lighting Control - Enhanced Version 3.2
+    # Smart Presence Lighting Control - Enhanced Version 3.3
 
     Intelligently manages your lighting based on room occupancy, light levels, and manual controls.
     Works with any combination of motion sensors, occupancy sensors, and illuminance sensors.
+    
+    ## NEW IN v3.3: Fixed Switch Control
+    
+    • **Switch Toggle Works** - Physical switch properly toggles lights in switch+lights mode
+    
+    • **Better Manual Detection** - Switch presses correctly detected as manual control
     
     ## NEW IN v3.2: Smart Switch as Controller
     
@@ -734,11 +740,24 @@ variables:
       {% else %}
         true
       {% endif %}
-    {% elif control_mode != 'switch_only' and trigger.entity_id in light_entities %}
+    {% elif control_mode == 'lights_only' and trigger.entity_id in light_entities %}
       {% if automation_active and not automation_active_stale and time_since_last_automation < 1 %}
         false
       {% else %}
         true
+      {% endif %}
+    {% elif control_mode == 'switch_and_lights' %}
+      {% if trigger.entity_id == light_switch %}
+        {# Switch press in switch_and_lights mode is always manual #}
+        true
+      {% elif trigger.entity_id in light_entities %}
+        {% if automation_active and not automation_active_stale and time_since_last_automation < 1 %}
+          false
+        {% else %}
+          true
+        {% endif %}
+      {% else %}
+        false
       {% endif %}
     {% else %}
       false
@@ -1245,6 +1264,64 @@ action:
           
           # Determine if override should be set or cleared
           - choose:
+              # Handle switch press in switch_and_lights mode - toggle lights
+              - conditions:
+                  - condition: template
+                    value_template: >-
+                      {{ control_mode == 'switch_and_lights' and trigger.entity_id == light_switch }}
+                sequence:
+                  # Toggle the lights
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ lights_on }}"
+                        sequence:
+                          # Turn off lights
+                          - service: light.turn_off
+                            target:
+                              entity_id: "{{ light_entities }}"
+                            data: >-
+                              {% if effective_fade_off_time > 0 %}
+                                {'transition': {{ effective_fade_off_time }}}
+                              {% else %}
+                                {}
+                              {% endif %}
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ not lights_on }}"
+                        sequence:
+                          # Turn on lights
+                          - service: light.turn_on
+                            target:
+                              entity_id: "{{ light_entities }}"
+                            data: >-
+                              {% set data = {} %}
+                              {% if enable_adaptive_brightness and light_is_dimmable %}
+                                {% set data = dict(data, **{'brightness_pct': adaptive_brightness}) %}
+                              {% endif %}
+                              {% if enable_color_temperature and light_supports_color_temp and adaptive_color_temp > 0 %}
+                                {% set data = dict(data, **{'kelvin': adaptive_color_temp}) %}
+                              {% endif %}
+                              {% if effective_fade_on_time > 0 %}
+                                {% set data = dict(data, **{'transition': effective_fade_on_time}) %}
+                              {% endif %}
+                              {{ data }}
+                  
+                  # Clear any existing overrides since user is actively controlling
+                  - service: input_boolean.turn_off
+                    target:
+                      entity_id: "{{ manual_override_helper }}"
+                  
+                  - if:
+                      - condition: template
+                        value_template: "{{ enable_debug_logs }}"
+                    then:
+                      - service: system_log.write
+                        data:
+                          level: info
+                          message: >-
+                            [{{ room_name | upper }}] Switch pressed - toggled lights {{ 'OFF' if lights_on else 'ON' }}
+              
               # Set override - user action conflicts with automation
               - conditions:
                   - condition: template
@@ -1356,9 +1433,14 @@ action:
             target:
               entity_id: "{{ light_auto_on_helper }}"
           
-          # Stop if override was set
+          # Stop if override was set (but not for switch presses in switch_and_lights mode)
           - condition: template
-            value_template: "{{ not manual_override }}"
+            value_template: >-
+              {% if control_mode == 'switch_and_lights' and trigger.entity_id == light_switch %}
+                false
+              {% else %}
+                {{ not manual_override }}
+              {% endif %}
       
       # Automatic light control
       - conditions:
