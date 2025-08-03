@@ -1,10 +1,32 @@
 blueprint:
-  name: Smart Presence Lighting Control (No Bed) - Enhanced v2
+  name: Smart Presence Lighting Control (No Bed) - Enhanced v3.2
   description: >
-    # Smart Presence Lighting Control - Enhanced Version 2
+    # Smart Presence Lighting Control - Enhanced Version 3.2
 
     Intelligently manages your lighting based on room occupancy, light levels, and manual controls.
     Works with any combination of motion sensors, occupancy sensors, and illuminance sensors.
+    
+    ## NEW IN v3.2: Smart Switch as Controller
+    
+    • **Fixed Smart Switch Behavior** - Switch acts as controller, not power cutoff
+    
+    • **Physical Press = Command** - Switch presses send commands to lights
+    
+    ## NEW IN v3.1: Advanced Dimming Control
+    
+    • **Independent Fade Control** - Choose to fade on, fade off, or both
+    
+    • **Separate Timing** - Different fade durations for turning on vs off
+    
+    • **Smart Switch as Controller** - Switch acts as input device, not power control
+    
+    ## NEW IN v3.0: Flexible Light/Switch Control
+    
+    • **Smart Switch + Smart Lights** - Switch acts as controller, sending commands to lights
+    
+    • **Smart Lights Only** - Direct light control without a switch
+    
+    • **Smart Switch Only** - Traditional switch control (backwards compatible)
 
     ## Features
 
@@ -24,7 +46,7 @@ blueprint:
     
     • **Color Temperature Control** - Optional color temperature adjustment throughout the day
     
-    • **Smooth Transitions** - Optional fade in/out effects for compatible lights
+    • **Advanced Dimming** - Independent fade in/out control with separate timing
     
     • **Illuminance Averaging** - Prevents light flapping from momentary light changes
     
@@ -142,16 +164,58 @@ blueprint:
             - sensor
             - input_number
     light_switch:
-      name: Light Switch/Entity
+      name: Light Switch/Entity (Optional - see Light Entities below)
       description: >
-        The light switch or light entity that this automation will control.
+        **OPTIONAL** - The switch that controls your lights.
+        
+        • **For smart switch + smart lights**: Select your wall switch here. The switch acts as a controller - physical presses send commands to control the smart lights (doesn't cut power).
+        
+        • **For smart lights only**: Leave this empty and use the Light Entities field below.
+        
+        • **For smart switch only (dumb lights)**: Select your smart switch here and leave Light Entities empty.
+        
         Works with both switch.* entities (simple on/off) and light.* entities (supports brightness).
-        You can also select a light group to control multiple lights at once.
+      default: ""
       selector:
         entity:
-          domain:
-            - switch
-            - light
+          domain: [switch, light]
+    light_entities:
+      name: Light Entities (Optional - for smart lights)
+      description: >
+        **OPTIONAL** - Select your smart light entities here.
+        
+        • **For smart lights**: Select one or more light entities to control directly.
+        
+        • **For smart switch + smart lights**: Select your smart lights here. The switch acts as a controller for these lights.
+        
+        • **For smart switch only**: Leave this empty.
+        
+        All light-specific features (brightness, color temperature, dimming) will be applied to these entities.
+      default: []
+      selector:
+        entity:
+          domain: light
+          multiple: true
+    control_mode:
+      name: Control Mode
+      description: >
+        Select how your lighting is set up:
+        
+        **Smart Switch + Smart Lights** - You have a wall switch AND smart bulbs. The switch acts as a controller - pressing it sends commands to toggle the smart lights (doesn't cut power).
+        
+        **Smart Lights Only** - You only have smart bulbs with no separate switch (e.g., lamps, integrated fixtures).
+        
+        **Smart Switch Only** - You have a smart switch controlling regular (non-smart) bulbs.
+      default: "switch_only"
+      selector:
+        select:
+          options:
+            - label: "Smart Switch + Smart Lights"
+              value: "switch_and_lights"
+            - label: "Smart Lights Only"
+              value: "lights_only"
+            - label: "Smart Switch Only"
+              value: "switch_only"
     dark_threshold:
       name: Dark Threshold
       description: >
@@ -330,25 +394,47 @@ blueprint:
           unit_of_measurement: K
           mode: slider
           step: 100
-    enable_transition_effects:
-      name: Enable Smooth Transitions
+    enable_fade_on:
+      name: Enable Fade On
       description: >
-        When enabled, lights will fade in/out smoothly instead of turning on/off instantly.
-        Only works with light.* entities that support transition effects.
-        Adds a pleasant aesthetic but slightly delays the action.
+        When enabled, lights will fade in smoothly when turning on.
+        When disabled, lights will turn on instantly to the target brightness.
+        Only works with light entities that support transitions.
       default: true
       selector:
         boolean:
-    transition_time_seconds:
-      name: Transition Time (seconds)
+    fade_on_time:
+      name: Fade On Time (seconds)
       description: >
-        How long the fade in/out transition should take when turning lights on or off.
-        Only applies if smooth transitions are enabled and the light supports it.
+        How long the fade in should take when turning lights on.
+        Only applies if fade on is enabled and the light supports transitions.
       default: 1.5
       selector:
         number:
           min: 0.5
-          max: 5
+          max: 10
+          unit_of_measurement: sec
+          mode: slider
+          step: 0.5
+    enable_fade_off:
+      name: Enable Fade Off
+      description: >
+        When enabled, lights will fade out smoothly when turning off.
+        When disabled, lights will turn off instantly.
+        Only works with light entities that support transitions.
+      default: true
+      selector:
+        boolean:
+    fade_off_time:
+      name: Fade Off Time (seconds)
+      description: >
+        How long the fade out should take when turning lights off.
+        Only applies if fade off is enabled and the light supports transitions.
+      default: 2.0
+      selector:
+        number:
+          min: 0.5
+          max: 10
           unit_of_measurement: sec
           mode: slider
           step: 0.5
@@ -410,7 +496,7 @@ blueprint:
       selector:
         boolean:
 
-# Variables and state management - ENHANCED v2
+# Variables and state management - ENHANCED v3.2
 variables:
   # Store start time for performance monitoring
   start_time: "{{ now().timestamp() }}"
@@ -421,6 +507,8 @@ variables:
   presence_mmwave_sensor: !input presence_mmwave_sensor
   illuminance_sensor: !input illuminance_sensor
   light_switch: !input light_switch
+  light_entities: !input light_entities
+  control_mode: !input control_mode
   dark_threshold: !input dark_threshold
   bright_threshold: !input bright_threshold
   extremely_dark_threshold: !input extremely_dark_threshold
@@ -433,14 +521,44 @@ variables:
   enable_color_temperature: !input enable_color_temperature
   day_color_temp: !input day_color_temp
   night_color_temp: !input night_color_temp
-  enable_transition_effects: !input enable_transition_effects
-  transition_time_seconds: !input transition_time_seconds
+  enable_fade_on: !input enable_fade_on
+  fade_on_time: !input fade_on_time
+  enable_fade_off: !input enable_fade_off
+  fade_off_time: !input fade_off_time
   override_behavior: !input override_behavior
   vacancy_clear_minutes: !input vacancy_clear_minutes
   enable_illuminance_averaging: !input enable_illuminance_averaging
   enable_guest_mode: !input enable_guest_mode
   guest_vacancy_multiplier: !input guest_vacancy_multiplier
   guest_override_multiplier: !input guest_override_multiplier
+  
+  # Determine control entities based on mode
+  has_switch: "{{ light_switch != '' and light_switch is not none }}"
+  has_lights: "{{ light_entities | length > 0 }}"
+  
+  # Primary control entity (for state checking and basic control)
+  primary_control_entity: >-
+    {% if control_mode == 'lights_only' %}
+      {% if has_lights %}
+        {{ light_entities[0] }}
+      {% else %}
+        none
+      {% endif %}
+    {% elif control_mode == 'switch_and_lights' %}
+      {% if has_lights %}
+        {{ light_entities[0] }}
+      {% elif has_switch %}
+        {{ light_switch }}
+      {% else %}
+        none
+      {% endif %}
+    {% else %}
+      {% if has_switch %}
+        {{ light_switch }}
+      {% else %}
+        none
+      {% endif %}
+    {% endif %}
   
   # Helper entity names (forced to lowercase for Home Assistant compatibility)
   automation_active_helper: "input_boolean.{{ room_name | lower }}_automation_active"
@@ -461,20 +579,42 @@ variables:
   # Cache entity states for performance
   pir_state: "{{ states(presence_pir_sensor) }}"
   mmwave_state: "{{ states(mmwave_sensor) }}"
-  light_state: "{{ states(light_switch) }}"
   illuminance_state: "{{ states(illuminance_sensor) }}"
+  
+  # Primary control state
+  primary_state: >-
+    {% if primary_control_entity != 'none' %}
+      {{ states(primary_control_entity) }}
+    {% else %}
+      'unavailable'
+    {% endif %}
+  
+  # Light states (checking all entities)
+  lights_on: >-
+    {% if control_mode == 'switch_only' %}
+      {% if has_switch %}
+        {{ is_state(light_switch, 'on') }}
+      {% else %}
+        false
+      {% endif %}
+    {% else %}
+      {% if has_lights %}
+        {{ expand(light_entities) | selectattr('state', 'eq', 'on') | list | count > 0 }}
+      {% else %}
+        false
+      {% endif %}
+    {% endif %}
   
   # Basic state validations
   pir_valid: "{{ pir_state not in ['unknown', 'unavailable', None] }}"
   mmwave_valid: "{{ mmwave_state not in ['unknown', 'unavailable', None] }}"
-  light_valid: "{{ light_state not in ['unknown', 'unavailable', None] }}"
+  primary_valid: "{{ primary_state not in ['unknown', 'unavailable', None] }}"
   illuminance_valid: "{{ illuminance_state not in ['unknown', 'unavailable', None] }}"
   
   # Core state evaluations
   pir_active: "{{ pir_valid and pir_state == 'on' }}"
   mmwave_active: "{{ mmwave_valid and mmwave_state == 'on' }}"
   someone_present: "{{ pir_active or mmwave_active }}"
-  lights_on: "{{ light_valid and light_state == 'on' }}"
   
   # Illuminance with averaging
   illuminance_raw: >-
@@ -531,9 +671,13 @@ variables:
   # Timestamps for state change tracking
   current_time: "{{ now().timestamp() }}"
   
-  light_changed_time: >-
-    {% set changed = as_timestamp(states[light_switch].last_changed) %}
-    {{ changed if changed else current_time }}
+  primary_changed_time: >-
+    {% if primary_control_entity != 'none' and states[primary_control_entity] %}
+      {% set changed = as_timestamp(states[primary_control_entity].last_changed) %}
+      {{ changed if changed else current_time }}
+    {% else %}
+      {{ current_time }}
+    {% endif %}
   
   override_changed_time: >-
     {% set changed = as_timestamp(states[manual_override_helper].last_changed) %}
@@ -553,7 +697,7 @@ variables:
     {% endif %}
   
   # Time calculations
-  light_changed_seconds_ago: "{{ (current_time - light_changed_time) | round(1) }}"
+  primary_changed_seconds_ago: "{{ (current_time - primary_changed_time) | round(1) }}"
   override_active_minutes: "{{ ((current_time - override_changed_time) / 60) | round(1) }}"
   room_vacant_minutes: >-
     {% if someone_present %}
@@ -563,31 +707,57 @@ variables:
     {% endif %}
   time_since_last_automation: "{{ (current_time - last_automation_time) | round(1) }}"
   
+  # Check if automation_active is stale (stuck on)
+  automation_active_stale: >-
+    {% if automation_active %}
+      {% set active_time = as_timestamp(states[automation_active_helper].last_changed) %}
+      {% if active_time %}
+        {{ (current_time - active_time) > 3 }}
+      {% else %}
+        true
+      {% endif %}
+    {% else %}
+      false
+    {% endif %}
+  
   # Recent change detection
-  light_recently_changed: "{{ light_changed_seconds_ago < 2 }}"
+  primary_recently_changed: "{{ primary_changed_seconds_ago < 2 }}"
   override_recently_set: "{{ manual_override and (current_time - override_changed_time) < 5 }}"
   
-  # Manual change detection
+  # Enhanced manual change detection
   is_manual_change: >-
-    {% if trigger.platform != 'state' or trigger.entity_id != light_switch %}
+    {% if trigger.platform != 'state' %}
       false
-    {% elif automation_active %}
-      false
-    {% elif time_since_last_automation < 1.5 %}
-      false
+    {% elif control_mode == 'switch_only' and trigger.entity_id == light_switch %}
+      {% if automation_active and not automation_active_stale and time_since_last_automation < 1 %}
+        false
+      {% else %}
+        true
+      {% endif %}
+    {% elif control_mode != 'switch_only' and trigger.entity_id in light_entities %}
+      {% if automation_active and not automation_active_stale and time_since_last_automation < 1 %}
+        false
+      {% else %}
+        true
+      {% endif %}
     {% else %}
-      true
+      false
     {% endif %}
   
   # Trigger analysis
-  is_light_trigger: "{{ trigger.platform == 'state' and trigger.entity_id == light_switch }}"
+  is_primary_trigger: >-
+    {% if control_mode == 'switch_only' %}
+      {{ trigger.platform == 'state' and trigger.entity_id == light_switch }}
+    {% else %}
+      {{ trigger.platform == 'state' and trigger.entity_id in light_entities }}
+    {% endif %}
   is_pir_trigger: "{{ trigger.platform == 'state' and trigger.entity_id == presence_pir_sensor }}"
   is_mmwave_trigger: "{{ trigger.platform == 'state' and trigger.entity_id == mmwave_sensor }}"
   is_illuminance_trigger: "{{ trigger.platform == 'state' and trigger.entity_id == illuminance_sensor }}"
   is_periodic_trigger: "{{ trigger.platform == 'time_pattern' }}"
   
-  user_turned_on: "{{ is_light_trigger and trigger.to_state.state == 'on' and trigger.from_state.state == 'off' }}"
-  user_turned_off: "{{ is_light_trigger and trigger.to_state.state == 'off' and trigger.from_state.state == 'on' }}"
+  user_turned_on: "{{ is_primary_trigger and trigger.to_state.state == 'on' and trigger.from_state.state == 'off' }}"
+  user_turned_off: "{{ is_primary_trigger and trigger.to_state.state == 'off' and trigger.from_state.state == 'on' }}"
   
   # Automation intent
   auto_would_turn_on: "{{ is_dark and someone_present }}"
@@ -620,17 +790,26 @@ variables:
       "unknown"
     {% endif %}
   
-  # Light capabilities
+  # Light capabilities (check first available light entity)
+  first_light_entity: >-
+    {% if has_lights %}
+      {{ light_entities[0] }}
+    {% elif has_switch and light_switch.startswith('light.') %}
+      {{ light_switch }}
+    {% else %}
+      none
+    {% endif %}
+  
   light_is_dimmable: >-
-    {% if light_switch.startswith('light.') %}
-      {{ state_attr(light_switch, 'supported_features') is not none }}
+    {% if first_light_entity != 'none' %}
+      {{ state_attr(first_light_entity, 'supported_features') is not none }}
     {% else %}
       false
     {% endif %}
   
   light_supports_color_temp: >-
-    {% if light_switch.startswith('light.') %}
-      {{ state_attr(light_switch, 'min_color_temp_kelvin') is not none }}
+    {% if first_light_entity != 'none' %}
+      {{ state_attr(first_light_entity, 'min_color_temp_kelvin') is not none }}
     {% else %}
       false
     {% endif %}
@@ -703,6 +882,21 @@ variables:
       {{ temp | int }}
     {% endif %}
   
+  # Transition time calculations
+  effective_fade_on_time: >-
+    {% if enable_fade_on %}
+      {{ fade_on_time }}
+    {% else %}
+      0
+    {% endif %}
+  
+  effective_fade_off_time: >-
+    {% if enable_fade_off %}
+      {{ fade_off_time }}
+    {% else %}
+      0
+    {% endif %}
+  
   # Sensor latency calculation with guest mode
   sensor_off_latency_seconds: >-
     {% if sensor_off_latency_entity and sensor_off_latency_entity != '' %}
@@ -735,6 +929,10 @@ trigger:
     
   - platform: state
     entity_id: !input light_switch
+    id: switch_change
+    
+  - platform: state
+    entity_id: !input light_entities
     id: light_change
     
   - platform: state
@@ -757,6 +955,11 @@ condition:
         true
       {% endif %}
   
+  # Skip if no control entities are configured
+  - condition: template
+    value_template: >-
+      {{ primary_control_entity != 'none' }}
+  
   # Don't trigger on attribute-only changes
   - condition: template
     value_template: >-
@@ -769,6 +972,24 @@ action:
   # Performance tracking start
   - variables:
       action_start_time: "{{ now().timestamp() }}"
+  
+  # Clear stale automation_active flag FIRST
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ automation_active_stale }}"
+        sequence:
+          - service: input_boolean.turn_off
+            target:
+              entity_id: "{{ automation_active_helper }}"
+          - if:
+              - condition: template
+                value_template: "{{ enable_debug_logs }}"
+            then:
+              - service: system_log.write
+                data:
+                  level: info
+                  message: "[{{ room_name | upper }}] Cleared stale automation_active flag"
   
   # Validate helper entities exist
   - choose:
@@ -809,10 +1030,44 @@ action:
               notification_id: "{{ room_name }}_lighting_helper_error"
           - stop: "Missing required helper entities"
   
+  # Validate control configuration
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: >-
+              {% if control_mode == 'switch_only' and not has_switch %}
+                true
+              {% elif control_mode == 'lights_only' and not has_lights %}
+                true
+              {% elif control_mode == 'switch_and_lights' and not has_switch and not has_lights %}
+                true
+              {% else %}
+                false
+              {% endif %}
+        sequence:
+          - service: persistent_notification.create
+            data:
+              title: "{{ room_name }} Lighting Automation Error"
+              message: >-
+                Invalid configuration for control mode "{{ control_mode }}":
+                {% if control_mode == 'switch_only' %}
+                - No switch entity selected
+                {% elif control_mode == 'lights_only' %}
+                - No light entities selected
+                {% elif control_mode == 'switch_and_lights' %}
+                - Neither switch nor light entities selected
+                {% endif %}
+              notification_id: "{{ room_name }}_lighting_config_error"
+          - stop: "Invalid control configuration"
+  
   # Clear any previous error notifications
   - service: persistent_notification.dismiss
     data:
       notification_id: "{{ room_name }}_lighting_helper_error"
+    continue_on_error: true
+  - service: persistent_notification.dismiss
+    data:
+      notification_id: "{{ room_name }}_lighting_config_error"
     continue_on_error: true
   
   # Update illuminance history if changed
@@ -850,18 +1105,23 @@ action:
           message: >-
             ┌─ {{ room_name | upper }} AUTOMATION START ─────────────────────
             │ Trigger: {{ trigger.id }} ({{ trigger.description | default('manual') }})
-            │ Light: {{ 'ON' if lights_on else 'OFF' }} ({{ light_state }})
+            │ Control Mode: {{ control_mode }}
+            │ Switch: {% if has_switch %}{{ light_switch }} ({{ states(light_switch) }}){% else %}NOT CONFIGURED{% endif %}
+            │ Lights: {% if has_lights %}{{ light_entities | join(', ') }}{% else %}NOT CONFIGURED{% endif %}
+            │ Lights On: {{ 'YES' if lights_on else 'NO' }}
             │ Presence: {{ 'YES' if someone_present else 'NO' }} (PIR={{ pir_active }}, mmWave={{ mmwave_active }})
             │ Illuminance: {{ illuminance }}lux (raw={{ illuminance_raw }}lux, dark<{{ dark_threshold }}, bright≥{{ bright_threshold }})
             │ Override: {{ 'ACTIVE' if manual_override else 'INACTIVE' }} ({{ override_active_minutes }}min)
+            │ Automation Active: {{ 'YES' if automation_active else 'NO' }}{{ ' (STALE)' if automation_active_stale else '' }}
             │ Vacancy: {{ room_vacant_minutes }}min
             │ Guest Mode: {{ 'ENABLED' if enable_guest_mode else 'DISABLED' }}
+            │ Fade Settings: On={{ fade_on_time }}s ({{ 'enabled' if enable_fade_on else 'disabled' }}), Off={{ fade_off_time }}s ({{ 'enabled' if enable_fade_off else 'disabled' }})
             └─────────────────────────────────────────────────────
   
   # Skip if automation is already active (prevent race conditions)
   - condition: template
     value_template: >-
-      {% if trigger.id != 'light_change' and automation_active %}
+      {% if not is_primary_trigger and automation_active and not automation_active_stale %}
         {% set active_time = as_timestamp(states[automation_active_helper].last_changed) %}
         {% if active_time %}
           {{ (current_time - active_time) > 0.5 }}
@@ -895,7 +1155,7 @@ action:
   # Debug manual change detection
   - if:
       - condition: template
-        value_template: "{{ enable_debug_logs and is_light_trigger }}"
+        value_template: "{{ enable_debug_logs and is_primary_trigger }}"
     then:
       - service: system_log.write
         data:
@@ -905,8 +1165,9 @@ action:
             │ is_manual_change: {{ is_manual_change }}
             │ trigger.platform: {{ trigger.platform }}
             │ trigger.entity_id: {{ trigger.entity_id }}
-            │ light_switch: {{ light_switch }}
+            │ control_mode: {{ control_mode }}
             │ automation_active: {{ automation_active }}
+            │ automation_active_stale: {{ automation_active_stale }}
             │ time_since_last_automation: {{ time_since_last_automation }}
 
   # Override clearing logic
@@ -945,7 +1206,7 @@ action:
   # Check for active manual override
   - if:
       - condition: template
-        value_template: "{{ manual_override and not is_light_trigger }}"
+        value_template: "{{ manual_override and not is_primary_trigger }}"
     then:
       - if:
           - condition: template
@@ -976,6 +1237,7 @@ action:
                   message: >-
                     ┌─ {{ room_name | upper }} MANUAL CHANGE DETECTED ────────────
                     │ Action: Turned {{ 'ON' if user_turned_on else 'OFF' }}
+                    │ Entity: {{ trigger.entity_id }}
                     │ Auto would: {{ 'turn ON' if auto_would_turn_on else 'turn OFF' if auto_would_turn_off else 'do nothing' }}
                     │ Illuminance: {{ illuminance }}lux
                     │ Presence: {{ 'YES' if someone_present else 'NO' }}
@@ -1101,7 +1363,7 @@ action:
       # Automatic light control
       - conditions:
           - condition: template
-            value_template: "{{ not manual_override and not light_recently_changed }}"
+            value_template: "{{ not manual_override and not primary_recently_changed }}"
         sequence:
           # Double-check override state
           - condition: template
@@ -1140,40 +1402,70 @@ action:
                   - condition: template
                     value_template: >-
                       {{ is_dark and someone_present and 
-                         is_state(light_switch, 'off') and 
-                         is_state(manual_override_helper, 'off') }}
+                         not lights_on and is_state(manual_override_helper, 'off') }}
                   
-                  # Turn on light with all features
+                  # Turn on lights based on control mode
                   - choose:
+                      # Smart lights only or switch+lights mode
                       - conditions:
                           - condition: template
-                            value_template: "{{ light_is_dimmable }}"
+                            value_template: "{{ control_mode != 'switch_only' and has_lights }}"
                         sequence:
+                          # Turn on smart lights with features
                           - service: light.turn_on
                             target:
-                              entity_id: "{{ light_switch }}"
+                              entity_id: "{{ light_entities }}"
                             data: >-
-                              {% set data = {'brightness_pct': adaptive_brightness} %}
+                              {% set data = {} %}
+                              {% if enable_adaptive_brightness and light_is_dimmable %}
+                                {% set data = dict(data, **{'brightness_pct': adaptive_brightness}) %}
+                              {% endif %}
                               {% if enable_color_temperature and light_supports_color_temp and adaptive_color_temp > 0 %}
                                 {% set data = dict(data, **{'kelvin': adaptive_color_temp}) %}
                               {% endif %}
-                              {% if enable_transition_effects %}
-                                {% set data = dict(data, **{'transition': transition_time_seconds}) %}
+                              {% if effective_fade_on_time > 0 %}
+                                {% set data = dict(data, **{'transition': effective_fade_on_time}) %}
                               {% endif %}
                               {{ data }}
-                    default:
-                      - service: homeassistant.turn_on
-                        target:
-                          entity_id: "{{ light_switch }}"
+                      
+                      # Switch only mode
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ control_mode == 'switch_only' and has_switch }}"
+                        sequence:
+                          - choose:
+                              - conditions:
+                                  - condition: template
+                                    value_template: "{{ light_switch.startswith('light.') and light_is_dimmable }}"
+                                sequence:
+                                  - service: light.turn_on
+                                    target:
+                                      entity_id: "{{ light_switch }}"
+                                    data: >-
+                                      {% set data = {} %}
+                                      {% if enable_adaptive_brightness %}
+                                        {% set data = dict(data, **{'brightness_pct': adaptive_brightness}) %}
+                                      {% endif %}
+                                      {% if enable_color_temperature and light_supports_color_temp and adaptive_color_temp > 0 %}
+                                        {% set data = dict(data, **{'kelvin': adaptive_color_temp}) %}
+                                      {% endif %}
+                                      {% if effective_fade_on_time > 0 %}
+                                        {% set data = dict(data, **{'transition': effective_fade_on_time}) %}
+                                      {% endif %}
+                                      {{ data }}
+                            default:
+                              - service: homeassistant.turn_on
+                                target:
+                                  entity_id: "{{ light_switch }}"
                   
                   # Set auto-on flag
                   - service: input_boolean.turn_on
                     target:
                       entity_id: "{{ light_auto_on_helper }}"
                   
-                  # Clear automation active
+                  # Clear automation active with improved delay
                   - delay:
-                      seconds: "{{ transition_time_seconds if enable_transition_effects else 0.1 }}"
+                      seconds: "{{ [effective_fade_on_time, 0.5] | max }}"
                   - service: input_boolean.turn_off
                     target:
                       entity_id: "{{ automation_active_helper }}"
@@ -1187,9 +1479,10 @@ action:
                           level: warning
                           message: >-
                             ┌─ {{ room_name | upper }} LIGHTS TURNED ON ──────────────────
+                            │ Control Mode: {{ control_mode }}
                             │ Brightness: {{ adaptive_brightness }}%
                             │ Color Temp: {{ adaptive_color_temp }}K{{ ' (enabled)' if (enable_color_temperature and light_supports_color_temp) else ' (disabled)' }}
-                            │ Transition: {{ transition_time_seconds if enable_transition_effects else 'instant' }}s
+                            │ Fade On: {{ effective_fade_on_time }}s{{ ' (enabled)' if enable_fade_on else ' (instant)' }}
                             │ Guest Mode: {{ 'YES' if enable_guest_mode else 'NO' }}
                             └─────────────────────────────────────────────────────
               
@@ -1213,32 +1506,53 @@ action:
                   # Final safety check
                   - condition: template
                     value_template: >-
-                      {{ not someone_present and is_state(light_switch, 'on') }}
+                      {{ not someone_present and lights_on }}
                   
-                  # Turn off light
+                  # Turn off lights based on control mode
                   - choose:
+                      # Smart lights only or switch+lights mode - turn off lights directly
                       - conditions:
                           - condition: template
-                            value_template: "{{ light_is_dimmable and enable_transition_effects }}"
+                            value_template: "{{ control_mode != 'switch_only' and has_lights }}"
                         sequence:
                           - service: light.turn_off
                             target:
-                              entity_id: "{{ light_switch }}"
-                            data:
-                              transition: "{{ transition_time_seconds }}"
-                    default:
-                      - service: homeassistant.turn_off
-                        target:
-                          entity_id: "{{ light_switch }}"
+                              entity_id: "{{ light_entities }}"
+                            data: >-
+                              {% if effective_fade_off_time > 0 %}
+                                {'transition': {{ effective_fade_off_time }}}
+                              {% else %}
+                                {}
+                              {% endif %}
+                      
+                      # Switch only mode - turn off switch
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ control_mode == 'switch_only' and has_switch }}"
+                        sequence:
+                          - choose:
+                              - conditions:
+                                  - condition: template
+                                    value_template: "{{ light_switch.startswith('light.') and effective_fade_off_time > 0 }}"
+                                sequence:
+                                  - service: light.turn_off
+                                    target:
+                                      entity_id: "{{ light_switch }}"
+                                    data:
+                                      transition: "{{ effective_fade_off_time }}"
+                            default:
+                              - service: homeassistant.turn_off
+                                target:
+                                  entity_id: "{{ light_switch }}"
                   
                   # Clear auto-on flag
                   - service: input_boolean.turn_off
                     target:
                       entity_id: "{{ light_auto_on_helper }}"
                   
-                  # Clear automation active
+                  # Clear automation active with improved delay
                   - delay:
-                      seconds: "{{ transition_time_seconds if enable_transition_effects else 0.1 }}"
+                      seconds: "{{ [effective_fade_off_time, 0.5] | max }}"
                   - service: input_boolean.turn_off
                     target:
                       entity_id: "{{ automation_active_helper }}"
@@ -1252,8 +1566,9 @@ action:
                           level: warning
                           message: >-
                             ┌─ {{ room_name | upper }} LIGHTS TURNED OFF ─────────────────
+                            │ Control Mode: {{ control_mode }}
                             │ Reason: Room vacant ({{ vacancy_timeout_minutes }}min timeout{{ ', guest mode' if enable_guest_mode else '' }})
-                            │ Transition: {{ transition_time_seconds if enable_transition_effects else 'instant' }}s
+                            │ Fade Off: {{ effective_fade_off_time }}s{{ ' (enabled)' if enable_fade_off else ' (instant)' }}
                             └─────────────────────────────────────────────────────
   
   # Enhanced decision summary
@@ -1267,11 +1582,12 @@ action:
           message: >-
             [{{ room_name | upper }}] DECISION SUMMARY
             ├─ Trigger: {{ trigger.id }}
+            ├─ Control Mode: {{ control_mode }}
             ├─ Presence: {{ 'YES' if someone_present else 'NO' }} (PIR={{ pir_active }}, mmWave={{ mmwave_active }})
             ├─ Light Level: {{ illuminance }}lux ({{ 'Dark' if is_dark else 'Bright' if is_bright else 'Medium' }})
             ├─ Override: {{ 'ACTIVE' if manual_override else 'INACTIVE' }}
             ├─ Guest Mode: {{ 'ENABLED' if enable_guest_mode else 'DISABLED' }}
-            ├─ Action Taken: {% if lights_on != (is_state(light_switch, 'on')) %}Light {{ 'turned ON' if is_state(light_switch, 'on') else 'turned OFF' }}{% else %}No change{% endif %}
+            ├─ Action Taken: {% if lights_on != (expand(light_entities) | selectattr('state', 'eq', 'on') | list | count > 0 if has_lights else is_state(light_switch, 'on') if has_switch else false) %}Lights {{ 'turned ON' if (expand(light_entities) | selectattr('state', 'eq', 'on') | list | count > 0 if has_lights else is_state(light_switch, 'on') if has_switch else false) else 'turned OFF' }}{% else %}No change{% endif %}
             ├─ Execution Time: {{ ((now().timestamp() - action_start_time) * 1000) | round(1) }}ms
             └─ Total Time: {{ ((now().timestamp() - start_time) * 1000) | round(1) }}ms
 
