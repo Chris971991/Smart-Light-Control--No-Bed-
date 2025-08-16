@@ -1,10 +1,18 @@
 blueprint:
-  name: Smart Presence Lighting Control (No Bed) - Enhanced v3.3
+  name: Smart Presence Lighting Control (No Bed) - Enhanced v3.4
   description: >
-    # Smart Presence Lighting Control - Enhanced Version 3.3
+    # Smart Presence Lighting Control - Enhanced Version 3.4
 
     Intelligently manages your lighting based on room occupancy, light levels, and manual controls.
     Works with any combination of motion sensors, occupancy sensors, and illuminance sensors.
+    
+    ## NEW IN v3.4: Fixed Illuminance Averaging
+    
+    • **Smart Averaging** - Illuminance averaging now properly handles when lights turn off
+    
+    • **No More Stuck Values** - Bright values won't persist after lights turn off
+    
+    • **Outlier Filtering** - Removes extreme values that would break averaging
     
     ## NEW IN v3.3: Fixed Switch Control
     
@@ -502,7 +510,7 @@ blueprint:
       selector:
         boolean:
 
-# Variables and state management - ENHANCED v3.2
+# Variables and state management - ENHANCED v3.4
 variables:
   # Store start time for performance monitoring
   start_time: "{{ now().timestamp() }}"
@@ -642,6 +650,7 @@ variables:
       []
     {% endif %}
 
+  # FIXED: Smart illuminance averaging with drop detection
   illuminance: >-
     {% if not enable_illuminance_averaging %}
       {{ illuminance_raw }}
@@ -652,8 +661,30 @@ variables:
         {% set history_str = illuminance_history_raw | string %}
         {% if history_str.startswith('[') and history_str.endswith(']') %}
           {% set values = history_str[1:-1].split(',') | select | map('float', 0) | list %}
-          {% set all_values = values[-4:] + [illuminance_raw | float] %}
-          {{ (all_values | sum) / (all_values | length) | round(1) }}
+          
+          {# BUGFIX: Reset history if current reading drops significantly (lights turned off) #}
+          {% if values | length > 0 %}
+            {% set last_avg = (values | sum) / (values | length) %}
+            {% set drop_ratio = illuminance_raw / last_avg if last_avg > 0 else 1 %}
+            
+            {# If illuminance dropped by more than 70%, reset history #}
+            {% if drop_ratio < 0.3 and last_avg > 20 %}
+              {{ illuminance_raw }}
+            {% else %}
+              {# Remove outliers that are 3x higher than current reading #}
+              {% set filtered_values = [] %}
+              {% for val in values[-4:] %}
+                {% if val <= (illuminance_raw * 3) or illuminance_raw >= 20 %}
+                  {% set filtered_values = filtered_values + [val] %}
+                {% endif %}
+              {% endfor %}
+              
+              {% set all_values = filtered_values + [illuminance_raw | float] %}
+              {{ (all_values | sum) / (all_values | length) | round(1) }}
+            {% endif %}
+          {% else %}
+            {{ illuminance_raw }}
+          {% endif %}
         {% else %}
           {{ illuminance_raw }}
         {% endif %}
@@ -1089,7 +1120,7 @@ action:
       notification_id: "{{ room_name }}_lighting_config_error"
     continue_on_error: true
   
-  # Update illuminance history if changed
+  # FIXED: Update illuminance history with smart drop detection
   - choose:
       - conditions:
           - condition: template
@@ -1106,8 +1137,30 @@ action:
                   {% set history_str = illuminance_history_raw | string %}
                   {% if history_str.startswith('[') and history_str.endswith(']') %}
                     {% set values = history_str[1:-1].split(',') | select | map('float', 0) | list %}
-                    {% set new_values = values[-4:] + [illuminance_raw | float] %}
-                    [{{ new_values | join(',') }}]
+                    
+                    {# BUGFIX: Reset history on significant drop #}
+                    {% if values | length > 0 %}
+                      {% set last_avg = (values | sum) / (values | length) %}
+                      {% set drop_ratio = illuminance_raw / last_avg if last_avg > 0 else 1 %}
+                      
+                      {% if drop_ratio < 0.3 and last_avg > 20 %}
+                        {# Major drop detected - likely lights turned off, reset history #}
+                        [{{ illuminance_raw }}]
+                      {% else %}
+                        {# Filter out values that are outliers #}
+                        {% set filtered_values = [] %}
+                        {% for val in values[-4:] %}
+                          {% if val <= (illuminance_raw * 3) or illuminance_raw >= 20 %}
+                            {% set filtered_values = filtered_values + [val] %}
+                          {% endif %}
+                        {% endfor %}
+                        
+                        {% set new_values = filtered_values[-4:] + [illuminance_raw | float] %}
+                        [{{ new_values | join(',') }}]
+                      {% endif %}
+                    {% else %}
+                      [{{ illuminance_raw }}]
+                    {% endif %}
                   {% else %}
                     [{{ illuminance_raw }}]
                   {% endif %}
