@@ -1,10 +1,18 @@
 blueprint:
-  name: Smart Presence Lighting Control (No Bed) - Enhanced v3.4
+  name: Smart Presence Lighting Control (No Bed) - Enhanced v3.5
   description: >
-    # Smart Presence Lighting Control - Enhanced Version 3.4
+    # Smart Presence Lighting Control - Enhanced Version 3.5
 
     Intelligently manages your lighting based on room occupancy, light levels, and manual controls.
     Works with any combination of motion sensors, occupancy sensors, and illuminance sensors.
+    
+    ## NEW IN v3.5: Respect Presence for Override Timeout
+    
+    • **Smart Override Timeout** - Option to prevent override timeout while still in the room
+    
+    • **Respects Your Intent** - If you manually turn lights off, they stay off while you're present
+    
+    • **User Choice** - Toggle to enable/disable this behavior based on preference
     
     ## NEW IN v3.4: Fixed Illuminance Averaging
     
@@ -362,6 +370,23 @@ blueprint:
           unit_of_measurement: hours
           mode: slider
           step: 0.5
+    override_respect_presence:
+      name: Respect Presence for Override Timeout
+      description: >
+        When enabled, manual override timeout will NOT clear while you're still in the room.
+        The override will only clear when:
+        • You leave the room (vacancy clear)
+        • You manually control the lights again
+        • The timeout expires AND the room is vacant
+        
+        This prevents lights from suddenly turning on after the timeout if you're still 
+        present and had manually turned them off.
+        
+        Example: You manually turn lights off to watch a movie. With this enabled, the 
+        lights won't suddenly turn on 3 hours later if you're still watching.
+      default: true
+      selector:
+        boolean:
     enable_adaptive_brightness:
       name: Enable Adaptive Brightness
       description: >
@@ -510,7 +535,7 @@ blueprint:
       selector:
         boolean:
 
-# Variables and state management - ENHANCED v3.4
+# Variables and state management - ENHANCED v3.5
 variables:
   # Store start time for performance monitoring
   start_time: "{{ now().timestamp() }}"
@@ -527,6 +552,7 @@ variables:
   bright_threshold: !input bright_threshold
   extremely_dark_threshold: !input extremely_dark_threshold
   override_timeout_hours: !input override_timeout_hours
+  override_respect_presence: !input override_respect_presence
   enable_debug_logs: !input enable_debug_logs
   sensor_off_latency_entity: !input sensor_off_latency_entity
   fixed_latency_seconds: !input fixed_latency_seconds
@@ -823,16 +849,32 @@ variables:
   effective_vacancy_clear_minutes: >-
     {{ (vacancy_clear_minutes * guest_vacancy_multiplier) if enable_guest_mode else vacancy_clear_minutes }}
   
-  # Override timeout logic with guest mode
-  override_timeout_exceeded: "{{ manual_override and (override_active_minutes / 60) > effective_override_hours }}"
+  # Override timeout logic with guest mode and presence respect
+  override_timeout_exceeded: >-
+    {% if manual_override and (override_active_minutes / 60) > effective_override_hours %}
+      {% if override_respect_presence %}
+        {# With respect presence: only clear if vacant OR lights already on #}
+        {{ not someone_present or lights_on }}
+      {% else %}
+        {# Without respect presence: always clear after timeout (original behavior) #}
+        true
+      {% endif %}
+    {% else %}
+      false
+    {% endif %}
+
   vacancy_clear_triggered: >-
     {{ manual_override and override_behavior == 'vacancy_clear' and room_vacant_minutes >= effective_vacancy_clear_minutes }}
-  
+
   override_should_clear: "{{ override_timeout_exceeded or vacancy_clear_triggered }}"
-  
+
   # Determine clear reason for logging
   override_clear_reason: >-
-    {% if override_timeout_exceeded %}
+    {% if override_timeout_exceeded and override_respect_presence and not someone_present %}
+      "timeout while vacant ({{ effective_override_hours }}h{{ ' guest mode' if enable_guest_mode else '' }})"
+    {% elif override_timeout_exceeded and override_respect_presence and lights_on %}
+      "timeout with lights already on ({{ effective_override_hours }}h{{ ' guest mode' if enable_guest_mode else '' }})"
+    {% elif override_timeout_exceeded and not override_respect_presence %}
       "timeout ({{ effective_override_hours }}h{{ ' guest mode' if enable_guest_mode else '' }})"
     {% elif vacancy_clear_triggered %}
       "vacancy ({{ room_vacant_minutes | int }}min{{ ' guest mode' if enable_guest_mode else '' }})"
@@ -1187,6 +1229,7 @@ action:
             │ Automation Active: {{ 'YES' if automation_active else 'NO' }}{{ ' (STALE)' if automation_active_stale else '' }}
             │ Vacancy: {{ room_vacant_minutes }}min
             │ Guest Mode: {{ 'ENABLED' if enable_guest_mode else 'DISABLED' }}
+            │ Respect Presence: {{ 'ENABLED' if override_respect_presence else 'DISABLED' }}
             │ Fade Settings: On={{ fade_on_time }}s ({{ 'enabled' if enable_fade_on else 'disabled' }}), Off={{ fade_off_time }}s ({{ 'enabled' if enable_fade_off else 'disabled' }})
             └─────────────────────────────────────────────────────
   
@@ -1724,6 +1767,7 @@ action:
             ├─ Light Level: {{ illuminance }}lux ({{ 'Dark' if is_dark else 'Bright' if is_bright else 'Medium' }})
             ├─ Override: {{ 'ACTIVE' if manual_override else 'INACTIVE' }}
             ├─ Guest Mode: {{ 'ENABLED' if enable_guest_mode else 'DISABLED' }}
+            ├─ Respect Presence: {{ 'ENABLED' if override_respect_presence else 'DISABLED' }}
             ├─ Action Taken: {% if lights_on != (expand(light_entities) | selectattr('state', 'eq', 'on') | list | count > 0 if has_lights else is_state(light_switch, 'on') if has_switch else false) %}Lights {{ 'turned ON' if (expand(light_entities) | selectattr('state', 'eq', 'on') | list | count > 0 if has_lights else is_state(light_switch, 'on') if has_switch else false) else 'turned OFF' }}{% else %}No change{% endif %}
             ├─ Execution Time: {{ ((now().timestamp() - action_start_time) * 1000) | round(1) }}ms
             └─ Total Time: {{ ((now().timestamp() - start_time) * 1000) | round(1) }}ms
