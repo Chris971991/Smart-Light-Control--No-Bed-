@@ -1,64 +1,25 @@
 blueprint:
-  name: Smart Presence Lighting Control (No Bed) - Enhanced v3.6
+  name: Smart Presence Lighting Control (No Bed) - Enhanced v3.7
   description: >
-    # Smart Presence Lighting Control - Enhanced Version 3.6
+    # Smart Presence Lighting Control - Enhanced Version 3.7
 
     Intelligently manages your lighting based on room occupancy, light levels, and manual controls.
     Works with any combination of motion sensors, occupancy sensors, and illuminance sensors.
     
-    ## NEW IN v3.6: Fixed Narrow Threshold Support
+    ## NEW IN v3.7: Enhanced Reliability & Intelligence
     
-    • **Adaptive Threshold Handling** - Now works perfectly with narrow threshold ranges (e.g., dark=5, bright=7.5)
+    • **Illuminance Spike Protection** - Filters out sudden bright spikes (camera flash, lightning, flashlights)
     
-    • **Smart Scaling** - All calculations adapt to your threshold gap size
+    • **Enhanced Threshold Validation** - Warns about problematic threshold configurations
     
-    • **No More Overflow** - "Somewhat dark" value never exceeds bright threshold
+    • **State Recovery System** - Gracefully handles Home Assistant restarts and corrupted states
     
-    • **Minimum Buffer Sizes** - Prevents microscopic zones that cause instability
+    • **Intelligent Debug Logging** - Provides threshold recommendations based on override patterns
     
-    ## NEW IN v3.5: Respect Presence for Override Timeout
+    • **Performance Tracking** - Monitors automation efficiency and suggests optimizations
     
-    • **Smart Override Timeout** - Option to prevent override timeout while still in the room
-    
-    • **Respects Your Intent** - If you manually turn lights off, they stay off while you're present
-    
-    • **User Choice** - Toggle to enable/disable this behavior based on preference
-    
-    ## NEW IN v3.4: Fixed Illuminance Averaging
-    
-    • **Smart Averaging** - Illuminance averaging now properly handles when lights turn off
-    
-    • **No More Stuck Values** - Bright values won't persist after lights turn off
-    
-    • **Outlier Filtering** - Removes extreme values that would break averaging
-    
-    ## NEW IN v3.3: Fixed Switch Control
-    
-    • **Switch Toggle Works** - Physical switch properly toggles lights in switch+lights mode. **Note** - For this to work, you need to have your smart lights wired to constant power! This can be done by wiring the lights behind your switch to the constant power supply from your house and not wiring it into the light switch itself.
-    
-    • **Better Manual Detection** - Switch presses correctly detected as manual control
-    
-    ## NEW IN v3.2: Smart Switch as Controller
-    
-    • **Fixed Smart Switch Behavior** - Switch acts as controller, not power cutoff
-    
-    • **Physical Press = Command** - Switch presses send commands to lights
-    
-    ## NEW IN v3.1: Advanced Dimming Control
-    
-    • **Independent Fade Control** - Choose to fade on, fade off, or both
-    
-    • **Separate Timing** - Different fade durations for turning on vs off
-    
-    • **Smart Switch as Controller** - Switch acts as input device, not power control
-    
-    ## NEW IN v3.0: Flexible Light/Switch Control
-    
-    • **Smart Switch + Smart Lights** - Switch acts as controller, sending commands to lights
-    
-    • **Smart Lights Only** - Direct light control without a switch
-    
-    • **Smart Switch Only** - Traditional switch control (backwards compatible)
+    For full version history and documentation, visit:
+    https://github.com/Chris971991/Smart-Light-Control-No-Bed
 
     ## Features
 
@@ -545,7 +506,7 @@ blueprint:
       selector:
         boolean:
 
-# Variables and state management - ENHANCED v3.6
+# Variables and state management - ENHANCED v3.7
 variables:
   # Store start time for performance monitoring
   start_time: "{{ now().timestamp() }}"
@@ -626,15 +587,40 @@ variables:
       {{ presence_pir_sensor }}
     {% endif %}
   
-  # Cache entity states for performance
-  pir_state: "{{ states(presence_pir_sensor) }}"
-  mmwave_state: "{{ states(mmwave_sensor) }}"
-  illuminance_state: "{{ states(illuminance_sensor) }}"
+  # Cache entity states for performance (with recovery)
+  pir_state: >-
+    {% set state = states(presence_pir_sensor) %}
+    {% if state in ['unknown', 'unavailable', None] %}
+      'off'
+    {% else %}
+      {{ state }}
+    {% endif %}
+  
+  mmwave_state: >-
+    {% set state = states(mmwave_sensor) %}
+    {% if state in ['unknown', 'unavailable', None] %}
+      'off'
+    {% else %}
+      {{ state }}
+    {% endif %}
+  
+  illuminance_state: >-
+    {% set state = states(illuminance_sensor) %}
+    {% if state in ['unknown', 'unavailable', None] %}
+      '50'
+    {% else %}
+      {{ state }}
+    {% endif %}
   
   # Primary control state
   primary_state: >-
     {% if primary_control_entity != 'none' %}
-      {{ states(primary_control_entity) }}
+      {% set state = states(primary_control_entity) %}
+      {% if state in ['unknown', 'unavailable', None] %}
+        'off'
+      {% else %}
+        {{ state }}
+      {% endif %}
     {% else %}
       'unavailable'
     {% endif %}
@@ -686,7 +672,7 @@ variables:
       []
     {% endif %}
 
-  # FIXED: Smart illuminance averaging with drop detection
+  # ENHANCED v3.7: Smart illuminance averaging with spike AND drop detection
   illuminance: >-
     {% if not enable_illuminance_averaging %}
       {{ illuminance_raw }}
@@ -698,19 +684,23 @@ variables:
         {% if history_str.startswith('[') and history_str.endswith(']') %}
           {% set values = history_str[1:-1].split(',') | select | map('float', 0) | list %}
           
-          {# BUGFIX: Reset history if current reading drops significantly (lights turned off) #}
           {% if values | length > 0 %}
             {% set last_avg = (values | sum) / (values | length) %}
-            {% set drop_ratio = illuminance_raw / last_avg if last_avg > 0 else 1 %}
+            {% set change_ratio = illuminance_raw / last_avg if last_avg > 0 else 1 %}
             
-            {# If illuminance dropped by more than 70%, reset history #}
-            {% if drop_ratio < 0.3 and last_avg > 20 %}
+            {# NEW v3.7: Detect both drops AND spikes #}
+            {% if change_ratio < 0.3 and last_avg > 20 %}
+              {# Major drop detected - likely lights turned off #}
               {{ illuminance_raw }}
+            {% elif change_ratio > 5 and illuminance_raw > 500 %}
+              {# Major spike detected - likely flash/lightning #}
+              {{ last_avg | round(1) }}
             {% else %}
-              {# Remove outliers that are 3x higher than current reading #}
+              {# Remove outliers in both directions #}
               {% set filtered_values = [] %}
               {% for val in values[-4:] %}
-                {% if val <= (illuminance_raw * 3) or illuminance_raw >= 20 %}
+                {% set val_ratio = val / illuminance_raw if illuminance_raw > 0 else 999 %}
+                {% if 0.2 < val_ratio < 5 or (illuminance_raw < 20 and val < 50) %}
                   {% set filtered_values = filtered_values + [val] %}
                 {% endif %}
               {% endfor %}
@@ -733,13 +723,33 @@ variables:
   is_extremely_dark: "{{ illuminance < extremely_dark_threshold }}"
   in_middle_range: "{{ dark_threshold <= illuminance < bright_threshold }}"
   
-  # Validate thresholds
+  # ENHANCED v3.7: Threshold validation and warnings
   thresholds_valid: "{{ dark_threshold < bright_threshold }}"
+  threshold_gap: "{{ bright_threshold - dark_threshold }}"
+  threshold_gap_warning: "{{ threshold_gap < 5 }}"
+  threshold_gap_critical: "{{ threshold_gap < 2 }}"
   
   # Helper states with validation
-  manual_override: "{{ is_state(manual_override_helper, 'on') }}"
-  automation_active: "{{ is_state(automation_active_helper, 'on') }}"
-  light_was_auto_on: "{{ is_state(light_auto_on_helper, 'on') }}"
+  manual_override: >-
+    {% if states[manual_override_helper] %}
+      {{ is_state(manual_override_helper, 'on') }}
+    {% else %}
+      false
+    {% endif %}
+  
+  automation_active: >-
+    {% if states[automation_active_helper] %}
+      {{ is_state(automation_active_helper, 'on') }}
+    {% else %}
+      false
+    {% endif %}
+  
+  light_was_auto_on: >-
+    {% if states[light_auto_on_helper] %}
+      {{ is_state(light_auto_on_helper, 'on') }}
+    {% else %}
+      false
+    {% endif %}
   
   # Timestamps for state change tracking
   current_time: "{{ now().timestamp() }}"
@@ -753,18 +763,30 @@ variables:
     {% endif %}
   
   override_changed_time: >-
-    {% set changed = as_timestamp(states[manual_override_helper].last_changed) %}
-    {{ changed if changed else current_time }}
+    {% if states[manual_override_helper] %}
+      {% set changed = as_timestamp(states[manual_override_helper].last_changed) %}
+      {{ changed if changed else current_time }}
+    {% else %}
+      {{ current_time }}
+    {% endif %}
   
   occupancy_changed_time: >-
-    {% set changed = as_timestamp(states[occupancy_state_helper].last_changed) %}
-    {{ changed if changed else current_time }}
+    {% if states[occupancy_state_helper] %}
+      {% set changed = as_timestamp(states[occupancy_state_helper].last_changed) %}
+      {{ changed if changed else current_time }}
+    {% else %}
+      {{ current_time }}
+    {% endif %}
   
   last_automation_time: >-
-    {% set last_action = states(last_automation_action_helper) %}
-    {% if last_action not in ['unknown', 'unavailable', '', None] %}
-      {% set action_time = as_timestamp(last_action) %}
-      {{ action_time if action_time else 0 }}
+    {% if states[last_automation_action_helper] %}
+      {% set last_action = states(last_automation_action_helper) %}
+      {% if last_action not in ['unknown', 'unavailable', '', None] %}
+        {% set action_time = as_timestamp(last_action) %}
+        {{ action_time if action_time else 0 }}
+      {% else %}
+        0
+      {% endif %}
     {% else %}
       0
     {% endif %}
@@ -783,9 +805,13 @@ variables:
   # Check if automation_active is stale (stuck on)
   automation_active_stale: >-
     {% if automation_active %}
-      {% set active_time = as_timestamp(states[automation_active_helper].last_changed) %}
-      {% if active_time %}
-        {{ (current_time - active_time) > 3 }}
+      {% if states[automation_active_helper] %}
+        {% set active_time = as_timestamp(states[automation_active_helper].last_changed) %}
+        {% if active_time %}
+          {{ (current_time - active_time) > 3 }}
+        {% else %}
+          true
+        {% endif %}
       {% else %}
         true
       {% endif %}
@@ -1013,6 +1039,14 @@ variables:
   vacancy_timeout_minutes: >-
     {% set timeout = (sensor_off_latency_seconds * effective_vacancy_multiplier) / 60 %}
     {{ [timeout | round(0, 'ceil'), 1] | max | int }}
+  
+  # NEW v3.7: Override tracking for recommendations
+  override_count: >-
+    {% if states.counter is defined and states.counter[room_name | lower + '_override_counter'] %}
+      {{ states('counter.' + room_name | lower + '_override_counter') | int(0) }}
+    {% else %}
+      0
+    {% endif %}
 
 # Triggers
 trigger:
@@ -1075,6 +1109,37 @@ action:
   - variables:
       action_start_time: "{{ now().timestamp() }}"
   
+  # NEW v3.7: State recovery - clear stale helpers
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: >-
+              {% set helpers_stale = [] %}
+              {% if states[automation_active_helper] and states[automation_active_helper].last_changed %}
+                {% set age = (current_time - as_timestamp(states[automation_active_helper].last_changed)) / 3600 %}
+                {% if age > 24 %}
+                  {% set helpers_stale = helpers_stale + ['automation_active'] %}
+                {% endif %}
+              {% endif %}
+              {{ helpers_stale | length > 0 }}
+        sequence:
+          - service: input_boolean.turn_off
+            target:
+              entity_id: "{{ automation_active_helper }}"
+            continue_on_error: true
+          - service: input_boolean.turn_off
+            target:
+              entity_id: "{{ manual_override_helper }}"
+            continue_on_error: true
+          - if:
+              - condition: template
+                value_template: "{{ enable_debug_logs }}"
+            then:
+              - service: system_log.write
+                data:
+                  level: warning
+                  message: "[{{ room_name | upper }}] State recovery: Reset stale helpers after >24h"
+  
   # Clear stale automation_active flag FIRST
   - choose:
       - conditions:
@@ -1092,6 +1157,43 @@ action:
                 data:
                   level: info
                   message: "[{{ room_name | upper }}] Cleared stale automation_active flag"
+  
+  # NEW v3.7: Threshold validation warnings
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ threshold_gap_critical and is_periodic_trigger }}"
+        sequence:
+          - service: persistent_notification.create
+            data:
+              title: "{{ room_name }} - Critical Threshold Warning"
+              message: >-
+                ⚠️ Your dark/bright thresholds are critically close ({{ threshold_gap }} lux gap)!
+                
+                Current settings:
+                • Dark: {{ dark_threshold }} lux
+                • Bright: {{ bright_threshold }} lux
+                
+                This may cause rapid on/off cycling. Recommended minimum gap: 10 lux
+                
+                Suggested values:
+                • Dark: {{ dark_threshold }} lux
+                • Bright: {{ [dark_threshold + 20, 50] | max }} lux
+              notification_id: "{{ room_name }}_threshold_warning"
+      - conditions:
+          - condition: template
+            value_template: "{{ threshold_gap_warning and not threshold_gap_critical and is_periodic_trigger }}"
+        sequence:
+          - if:
+              - condition: template
+                value_template: "{{ enable_debug_logs }}"
+            then:
+              - service: system_log.write
+                data:
+                  level: warning
+                  message: >-
+                    [{{ room_name | upper }}] Threshold gap warning: {{ threshold_gap }} lux
+                    Consider increasing gap to at least 10 lux for stability
   
   # Validate helper entities exist
   - choose:
@@ -1172,7 +1274,7 @@ action:
       notification_id: "{{ room_name }}_lighting_config_error"
     continue_on_error: true
   
-  # FIXED: Update illuminance history with smart drop detection
+  # ENHANCED v3.7: Update illuminance history with spike AND drop detection
   - choose:
       - conditions:
           - condition: template
@@ -1190,19 +1292,23 @@ action:
                   {% if history_str.startswith('[') and history_str.endswith(']') %}
                     {% set values = history_str[1:-1].split(',') | select | map('float', 0) | list %}
                     
-                    {# BUGFIX: Reset history on significant drop #}
                     {% if values | length > 0 %}
                       {% set last_avg = (values | sum) / (values | length) %}
-                      {% set drop_ratio = illuminance_raw / last_avg if last_avg > 0 else 1 %}
+                      {% set change_ratio = illuminance_raw / last_avg if last_avg > 0 else 1 %}
                       
-                      {% if drop_ratio < 0.3 and last_avg > 20 %}
-                        {# Major drop detected - likely lights turned off, reset history #}
+                      {# v3.7: Enhanced spike detection #}
+                      {% if change_ratio < 0.3 and last_avg > 20 %}
+                        {# Major drop - reset #}
                         [{{ illuminance_raw }}]
+                      {% elif change_ratio > 5 and illuminance_raw > 500 %}
+                        {# Major spike - ignore, keep history #}
+                        [{{ values[-5:] | join(',') }}]
                       {% else %}
-                        {# Filter out values that are outliers #}
+                        {# Filter outliers in both directions #}
                         {% set filtered_values = [] %}
                         {% for val in values[-4:] %}
-                          {% if val <= (illuminance_raw * 3) or illuminance_raw >= 20 %}
+                          {% set val_ratio = val / illuminance_raw if illuminance_raw > 0 else 999 %}
+                          {% if 0.2 < val_ratio < 5 or (illuminance_raw < 20 and val < 50) %}
                             {% set filtered_values = filtered_values + [val] %}
                           {% endif %}
                         {% endfor %}
@@ -1218,7 +1324,7 @@ action:
                   {% endif %}
                 {% endif %}
   
-  # Debug: Initial state logging
+  # ENHANCED v3.7: Debug with performance metrics and recommendations
   - if:
       - condition: template
         value_template: "{{ enable_debug_logs }}"
@@ -1235,6 +1341,7 @@ action:
             │ Lights On: {{ 'YES' if lights_on else 'NO' }}
             │ Presence: {{ 'YES' if someone_present else 'NO' }} (PIR={{ pir_active }}, mmWave={{ mmwave_active }})
             │ Illuminance: {{ illuminance }}lux (raw={{ illuminance_raw }}lux, dark<{{ dark_threshold }}, bright≥{{ bright_threshold }})
+            │ Threshold Gap: {{ threshold_gap }}lux{{ ' ⚠️ TOO NARROW' if threshold_gap_warning else '' }}
             │ Override: {{ 'ACTIVE' if manual_override else 'INACTIVE' }} ({{ override_active_minutes }}min)
             │ Automation Active: {{ 'YES' if automation_active else 'NO' }}{{ ' (STALE)' if automation_active_stale else '' }}
             │ Vacancy: {{ room_vacant_minutes }}min
@@ -1247,7 +1354,7 @@ action:
   - condition: template
     value_template: >-
       {% if not is_primary_trigger and automation_active and not automation_active_stale %}
-        {% set active_time = as_timestamp(states[automation_active_helper].last_changed) %}
+        {% set active_time = as_timestamp(states[automation_active_helper].last_changed) if states[automation_active_helper] else 0 %}
         {% if active_time %}
           {{ (current_time - active_time) > 0.5 }}
         {% else %}
@@ -1354,6 +1461,24 @@ action:
           - condition: template
             value_template: "{{ is_manual_change }}"
         sequence:
+          # NEW v3.7: Track override patterns for recommendations
+          - if:
+              - condition: template
+                value_template: >-
+                  {{ (user_turned_on and not auto_would_turn_on) or 
+                     (user_turned_off and auto_would_turn_on) }}
+            then:
+              - if:
+                  - condition: template
+                    value_template: "{{ enable_debug_logs }}"
+                then:
+                  - service: system_log.write
+                    data:
+                      level: info
+                      message: >-
+                        [{{ room_name | upper }}] Override pattern detected at {{ illuminance }}lux
+                        │ Consider adjusting: {% if user_turned_on and illuminance > dark_threshold %}dark threshold to {{ illuminance + 5 }}lux{% elif user_turned_off and illuminance < dark_threshold %}dark threshold to {{ [illuminance - 5, 5] | max }}lux{% else %}thresholds based on usage{% endif %}
+          
           - if:
               - condition: template
                 value_template: "{{ enable_debug_logs }}"
@@ -1497,10 +1622,12 @@ action:
                     value_template: >-
                       {% set auto_on_recent = false %}
                       {% if is_state(light_auto_on_helper, 'on') and user_turned_on %}
-                        {% set auto_on_changed = as_timestamp(states[light_auto_on_helper].last_changed) %}
-                        {% if auto_on_changed %}
-                          {% set age = current_time - auto_on_changed %}
-                          {% set auto_on_recent = age < 5 %}
+                        {% if states[light_auto_on_helper] %}
+                          {% set auto_on_changed = as_timestamp(states[light_auto_on_helper].last_changed) %}
+                          {% if auto_on_changed %}
+                            {% set age = current_time - auto_on_changed %}
+                            {% set auto_on_recent = age < 5 %}
+                          {% endif %}
                         {% endif %}
                       {% endif %}
                       
@@ -1803,7 +1930,7 @@ action:
                             │ Fade Off: {{ effective_fade_off_time }}s{{ ' (enabled)' if enable_fade_off else ' (instant)' }}
                             └─────────────────────────────────────────────────────
   
-  # Enhanced decision summary
+  # ENHANCED v3.7: Decision summary with performance metrics
   - if:
       - condition: template
         value_template: "{{ enable_debug_logs }}"
@@ -1822,7 +1949,8 @@ action:
             ├─ Respect Presence: {{ 'ENABLED' if override_respect_presence else 'DISABLED' }}
             ├─ Action Taken: {% if lights_on != (expand(light_entities) | selectattr('state', 'eq', 'on') | list | count > 0 if has_lights else is_state(light_switch, 'on') if has_switch else false) %}Lights {{ 'turned ON' if (expand(light_entities) | selectattr('state', 'eq', 'on') | list | count > 0 if has_lights else is_state(light_switch, 'on') if has_switch else false) else 'turned OFF' }}{% else %}No change{% endif %}
             ├─ Execution Time: {{ ((now().timestamp() - action_start_time) * 1000) | round(1) }}ms
-            └─ Total Time: {{ ((now().timestamp() - start_time) * 1000) | round(1) }}ms
+            ├─ Total Time: {{ ((now().timestamp() - start_time) * 1000) | round(1) }}ms
+            └─ Performance: {% if ((now().timestamp() - start_time) * 1000) < 100 %}⚡ Excellent{% elif ((now().timestamp() - start_time) * 1000) < 500 %}✓ Good{% else %}⚠️ Slow (check conditions){% endif %}
 
 mode: queued
 max: 2
