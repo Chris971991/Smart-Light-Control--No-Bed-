@@ -1672,8 +1672,8 @@ action:
                           level: info
                           message: >-
                             [{{ room_name | upper }}] Manual override SET
-                            │ Reason: {% if wants_dark_while_present %}Wants dark while present (not bright){% elif wants_light_when_not_dark %}Wants light when not dark{% elif fighting_automation %}Fighting automation{% elif extreme_override %}Extreme darkness override{% elif middle_range_override %}Manual control in narrow threshold range{% else %}User preference{% endif %}
-                            │ Gap: {{ threshold_gap }} lux, Illuminance: {{ illuminance }} lux
+                            │ Reason: {% if user_turned_off and someone_present and not is_bright %}Wants dark while present (not bright){% elif user_turned_on and not is_dark and someone_present %}Wants light when not dark{% elif user_turned_off and light_was_auto_on and someone_present %}Fighting automation{% elif user_turned_off and is_extremely_dark and someone_present %}Extreme darkness override{% elif (bright_threshold - dark_threshold) <= 10 and in_middle_range and someone_present %}Manual control in narrow threshold range{% else %}User preference{% endif %}
+                            │ Gap: {{ bright_threshold - dark_threshold }} lux, Illuminance: {{ illuminance }} lux
           
           # Clear auto-on flag
           - service: input_boolean.turn_off
