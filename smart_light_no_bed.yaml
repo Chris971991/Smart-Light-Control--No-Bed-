@@ -1909,7 +1909,7 @@ action:
         data:
           level: info
           message: >-
-            [{{ room_name | upper }}] DECISION SUMMARY
+            [{{ room_name | upper }}] DECISION SUMMARY!
             ├─ Trigger: {{ trigger.id }}
             ├─ Control Mode: {{ control_mode }}
             ├─ Presence: {{ 'YES' if someone_present else 'NO' }} (PIR={{ pir_active }}, mmWave={{ mmwave_active }})
