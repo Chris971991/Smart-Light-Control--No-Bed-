@@ -1616,7 +1616,7 @@ action:
                           level: info
                           message: "[{{ room_name | upper }}] Override cleared - lights off in bright room"
               
-              # Default case - set override for other manual changes (FIXED FOR NARROW THRESHOLDS)
+              # Default case - set override for other manual changes (PROPERLY FIXED FOR ALL THRESHOLDS)
               - conditions:
                   - condition: template
                     value_template: >-
@@ -1631,62 +1631,32 @@ action:
                         {% endif %}
                       {% endif %}
                       
-                      {# FIXED: Adaptive calculations based on threshold gap #}
+                      {# PROPERLY FIXED: Better threshold handling for ALL configurations #}
                       {% set threshold_gap = bright_threshold - dark_threshold %}
                       
-                      {# Scale multipliers based on gap size #}
-                      {% set gap_ratio = [threshold_gap / 50, 1] | min %}
+                      {# Key insight: If turning off lights when not bright AND someone present, it's an override #}
+                      {% set wants_dark_while_present = user_turned_off and someone_present and not is_bright %}
                       
-                      {# Adaptive "somewhat dark" - never exceeds bright threshold #}
-                      {% set somewhat_dark_multiplier = 1 + (0.5 * gap_ratio) %}
-                      {% set somewhat_dark_value = [dark_threshold * somewhat_dark_multiplier, bright_threshold - 0.1] | min %}
-                      {% set somewhat_dark = illuminance < somewhat_dark_value %}
+                      {# If turning on lights when not dark, it's an override #}
+                      {% set wants_light_when_not_dark = user_turned_on and not is_dark and someone_present %}
                       
-                      {# Adaptive near threshold - scales with gap #}
-                      {% set near_threshold_distance = [threshold_gap * 0.2, 2] | min %}
-                      {% set near_dark_threshold = (illuminance - dark_threshold)|abs < near_threshold_distance %}
-                      
-                      {# Adaptive buffer zone - minimum 10% of gap or 0.5 lux #}
-                      {% set buffer_size = [threshold_gap * 0.3, 0.5] | max %}
-                      {% set buffer_zone = illuminance < (dark_threshold + buffer_size) and illuminance >= dark_threshold %}
-                      
-                      {# Very narrow range detection - adjusted threshold #}
-                      {% set very_narrow_range = threshold_gap <= 5 %}
-                      
-                      {# Special handling for extremely narrow ranges #}
-                      {% set extremely_narrow = threshold_gap < 3 %}
-                      
-                      {% set edge_case_off = false %}
-                      {# For extremely narrow ranges, only trigger on actual darkness #}
-                      {% if extremely_narrow %}
-                        {% set edge_case_off = user_turned_off and someone_present and is_dark %}
-                      {% else %}
-                        {% set edge_case_off = user_turned_off and someone_present and 
-                                                (somewhat_dark or buffer_zone or near_dark_threshold) %}
-                      {% endif %}
-                      
-                      {# For narrow ranges, be more conservative about overrides #}
-                      {% set narrow_range_override = false %}
-                      {% if very_narrow_range and in_middle_range %}
-                        {% if extremely_narrow %}
-                          {# Only override if actually crossing thresholds #}
-                          {% set narrow_range_override = (user_turned_on and is_bright) or 
-                                                          (user_turned_off and is_dark) %}
-                        {% else %}
-                          {% set narrow_range_override = (user_turned_on or user_turned_off) %}
-                        {% endif %}
-                      {% endif %}
-                      
+                      {# Fighting automation - turned off lights that were auto-on #}
                       {% set fighting_automation = user_turned_off and light_was_auto_on and someone_present %}
                       
-                      {% set extreme_override = false %}
-                      {# Only use extreme override if we have reasonable threshold spacing #}
-                      {% if threshold_gap > 5 %}
-                        {% set extreme_override = user_turned_off and is_extremely_dark and someone_present %}
-                      {% endif %}
+                      {# Extreme darkness override - insisting on darkness in pitch black #}
+                      {% set extreme_override = user_turned_off and is_extremely_dark and someone_present %}
                       
-                      {{ not auto_on_recent and (edge_case_off or narrow_range_override or 
-                        fighting_automation or extreme_override) }}
+                      {# For narrow thresholds - any manual change in middle range should override #}
+                      {% set narrow_threshold = threshold_gap <= 10 %}
+                      {% set middle_range_override = narrow_threshold and in_middle_range and someone_present %}
+                      
+                      {{ not auto_on_recent and (
+                        wants_dark_while_present or 
+                        wants_light_when_not_dark or 
+                        fighting_automation or 
+                        extreme_override or
+                        middle_range_override
+                      ) }}
                 sequence:
                   - service: input_boolean.turn_on
                     target:
@@ -1702,8 +1672,8 @@ action:
                           level: info
                           message: >-
                             [{{ room_name | upper }}] Manual override SET
-                            │ Reason: {% if user_turned_off and someone_present and is_dark %}Wants dark while present{% elif user_turned_off and light_was_auto_on %}Fighting automation{% elif user_turned_off and is_extremely_dark and (bright_threshold - dark_threshold) > 5 %}Extreme darkness override{% elif (bright_threshold - dark_threshold) <= 5 %}Narrow threshold range ({{ bright_threshold - dark_threshold }} lux gap){% else %}User preference{% endif %}
-                            │ Gap: {{ bright_threshold - dark_threshold }} lux, Illuminance: {{ illuminance }} lux
+                            │ Reason: {% if wants_dark_while_present %}Wants dark while present (not bright){% elif wants_light_when_not_dark %}Wants light when not dark{% elif fighting_automation %}Fighting automation{% elif extreme_override %}Extreme darkness override{% elif middle_range_override %}Manual control in narrow threshold range{% else %}User preference{% endif %}
+                            │ Gap: {{ threshold_gap }} lux, Illuminance: {{ illuminance }} lux
           
           # Clear auto-on flag
           - service: input_boolean.turn_off
